@@ -1,0 +1,63 @@
+@import "tailwindcss";
+
+@theme {
+  --color-brand-50: #f4f6fb;
+  --color-brand-100: #e7ecf6;
+  --color-brand-200: #c9d7ea;
+  --color-brand-300: #9cb9d9;
+  --color-brand-400: #6896c3;
+  --color-brand-500: #4377a9;
+  --color-brand-600: #335d8a;
+  --color-brand-700: #294a6f;
+  --color-brand-800: #24405d;
+  --color-brand-900: #21364e;
+  --color-brand-950: #162436;
+
+  --font-sans: "Inter", "Outfit", system-ui, -apple-system, sans-serif;
+}
+
+@layer base {
+  :root {
+    --background: #f8fafc;
+    --foreground: #0f172a;
+    --card: #ffffff;
+    --card-foreground: #0f172a;
+    --border: #e2e8f0;
+    --ring: #3b82f6;
+    --radius: 0.75rem;
+  }
+
+  body {
+    @apply bg-[var(--background)] text-[var(--foreground)] antialiased min-h-screen font-sans;
+    background-image: radial-gradient(circle at top right, rgba(59, 130, 246, 0.05) 0%, transparent 40%),
+                      radial-gradient(circle at bottom left, rgba(59, 130, 246, 0.05) 0%, transparent 40%);
+  }
+}
+
+@layer components {
+  .pro-card {
+    @apply bg-white border border-[var(--border)] rounded-[var(--radius)] shadow-sm hover:shadow-md transition-shadow duration-300;
+  }
+
+  .pro-input {
+    @apply flex h-10 w-full rounded-md border border-[var(--border)] bg-transparent px-3 py-2 text-sm placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-[var(--ring)] focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 transition-all duration-200;
+  }
+
+  .pro-button {
+    @apply inline-flex items-center justify-center rounded-md text-sm font-medium ring-offset-white transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)] focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 bg-slate-900 text-white hover:bg-slate-900/90 h-10 px-4 py-2 active:scale-[0.98];
+  }
+  
+  .glass-panel {
+    @apply bg-white/70 backdrop-blur-md border border-white/20 shadow-xl rounded-2xl;
+  }
+}
+
+/* Micro-animations */
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.animate-fade-in {
+  animation: fadeIn 0.4s ease-out forwards;
+}

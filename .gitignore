@@ -1,3 +1,7 @@
+node_modules/
+dist/
 venv/
 __pycache__/
 .streamlit/
+*.log
+frontend/scratch_*.mjs
