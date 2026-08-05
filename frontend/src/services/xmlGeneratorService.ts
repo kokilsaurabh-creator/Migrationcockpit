@@ -1,6 +1,7 @@
 // frontend/src/services/xmlGeneratorService.ts
 import type { FieldMapping, FixedRuleRecord, MasterSchema, MasterType } from '../types';
 import { MASTER_CONFIGS } from '../utils/constants';
+import { applySmartTextWrappingToRecord } from '../utils/textWrapper';
 
 function escapeXml(unsafe: string): string {
   return unsafe
@@ -216,7 +217,12 @@ export async function generateXmlPayload(
     });
   });
 
-  // 4. Process each sheet and inject XML rows with deduplication
+  // 4. Apply smart text wrapping on Name and Street fields across all sheets & rows
+  for (const sheetName of Object.keys(finalSapData)) {
+    finalSapData[sheetName] = finalSapData[sheetName].map((row) => applySmartTextWrappingToRecord(row));
+  }
+
+  // 5. Process each sheet and inject XML rows with deduplication
   for (const sheetName of Object.keys(finalSapData)) {
     const rowsList = finalSapData[sheetName];
     const sheetStartTag = `<Worksheet ss:Name="${sheetName}"`;
