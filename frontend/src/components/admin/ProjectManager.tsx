@@ -2,8 +2,9 @@
 import React, { useState, useEffect } from 'react';
 import {
   fetchProjectsAndModulesForUser,
-  fetchProjectLockStatuses,
-  setProjectLockStatus,
+  fetchProjectMasterLockStatuses,
+  setProjectMasterLockStatus,
+  isProjectMasterLocked,
   deleteProject
 } from '../../services/projectService';
 import { MasterType } from '../../types';
@@ -22,10 +23,12 @@ import {
   Layers
 } from 'lucide-react';
 
+const ALL_MASTER_TYPES: MasterType[] = ['Material Master', 'Vendor Master', 'Customer Master'];
+
 export const ProjectManager: React.FC = () => {
   const [projects, setProjects] = useState<string[]>([]);
   const [allowedMastersMap, setAllowedMastersMap] = useState<Record<string, MasterType[]>>({});
-  const [lockStatuses, setLockStatuses] = useState<Record<string, boolean>>({});
+  const [masterLocksMap, setMasterLocksMap] = useState<Record<string, Record<string, boolean>>>({});
   const [loading, setLoading] = useState<boolean>(true);
   const [toast, setToast] = useState<{ type: 'success' | 'error'; msg: string } | null>(null);
 
@@ -43,11 +46,11 @@ export const ProjectManager: React.FC = () => {
     try {
       const { projects: projList, allowedMastersMap: mastersMap } =
         await fetchProjectsAndModulesForUser('', 'Admin');
-      const locks = await fetchProjectLockStatuses();
+      const locksMap = await fetchProjectMasterLockStatuses();
 
       setProjects(projList);
       setAllowedMastersMap(mastersMap);
-      setLockStatuses(locks);
+      setMasterLocksMap(locksMap);
     } catch (err) {
       console.error('Error loading projects in ProjectManager:', err);
     } finally {
@@ -55,18 +58,24 @@ export const ProjectManager: React.FC = () => {
     }
   };
 
-  const handleToggleLock = async (projectName: string) => {
-    const currentLocked = !!lockStatuses[projectName];
+  const handleToggleMasterLock = async (projectName: string, masterType: MasterType) => {
+    const currentLocked = isProjectMasterLocked(projectName, masterType);
     const newLocked = !currentLocked;
 
-    await setProjectLockStatus(projectName, newLocked);
-    setLockStatuses((prev) => ({ ...prev, [projectName]: newLocked }));
+    await setProjectMasterLockStatus(projectName, masterType, newLocked);
+    setMasterLocksMap((prev) => ({
+      ...prev,
+      [projectName]: {
+        ...(prev[projectName] || {}),
+        [masterType]: newLocked
+      }
+    }));
 
     setToast({
       type: 'success',
       msg: newLocked
-        ? `🔒 Locked project '${projectName}'. Field Mappings & Rule Engine are now read-only.`
-        : `🔓 Unlocked project '${projectName}'. Field Mappings & Rule Engine can now be edited.`
+        ? `🔒 Locked '${masterType}' for project '${projectName}'. Mappings & Rules are now read-only.`
+        : `🔓 Unlocked '${masterType}' for project '${projectName}'. Mappings & Rules can now be edited.`
     });
   };
 
@@ -116,10 +125,10 @@ export const ProjectManager: React.FC = () => {
         <div>
           <h2 className="text-base font-extrabold text-slate-900 flex items-center">
             <FolderCog className="w-5 h-5 mr-2 text-blue-600" />
-            Project Lifecycle & Lock Governance Hub
+            Project Lifecycle & Master Lock Governance Hub
           </h2>
           <p className="text-xs text-slate-500 font-medium mt-0.5">
-            Lock field mapping and rule engines to prevent unauthorized changes, or permanently delete projects and purge all database records.
+            Lock field mapping and rule engines specifically per Master Data Module (Material, Vendor, Customer) to prevent unauthorized changes, or delete projects and purge DB records.
           </p>
         </div>
       </div>
@@ -143,77 +152,88 @@ export const ProjectManager: React.FC = () => {
               <thead>
                 <tr className="bg-slate-100/70 border-b border-slate-200 text-slate-600 font-bold uppercase tracking-wider">
                   <th className="py-3 px-4">Project Space</th>
-                  <th className="py-3 px-4">Master Data Modules</th>
-                  <th className="py-3 px-4">Mapping & Rules Status</th>
-                  <th className="py-3 px-4 text-right">Governance Actions</th>
+                  <th className="py-3 px-4">Master Data Modules & Governance Controls</th>
+                  <th className="py-3 px-4 text-right">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-200 font-medium text-slate-700">
                 {projects.map((proj) => {
-                  const isLocked = !!lockStatuses[proj];
-                  const modules = allowedMastersMap[proj] || ['Material Master'];
+                  const registeredModules = allowedMastersMap[proj] || ['Material Master'];
+                  // Display all master types so admin can control locks for Material, Vendor, Customer
+                  const displayModules = ALL_MASTER_TYPES;
 
                   return (
                     <tr key={proj} className="hover:bg-slate-50/80 transition-colors">
-                      <td className="py-3.5 px-4 font-bold text-slate-900 flex items-center">
-                        <span className="w-2 h-2 rounded-full mr-2.5 bg-blue-500 shrink-0" />
-                        {proj}
-                      </td>
-
-                      <td className="py-3.5 px-4">
-                        <div className="flex flex-wrap gap-1.5">
-                          {modules.map((m) => (
-                            <span
-                              key={m}
-                              className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-slate-100 text-slate-700 border border-slate-200"
-                            >
-                              {m}
-                            </span>
-                          ))}
+                      <td className="py-4 px-4 font-bold text-slate-900 align-top">
+                        <div className="flex items-center space-x-2">
+                          <span className="w-2.5 h-2.5 rounded-full bg-blue-500 shrink-0" />
+                          <span className="text-sm font-extrabold text-slate-900">{proj}</span>
                         </div>
                       </td>
 
-                      <td className="py-3.5 px-4">
-                        {isLocked ? (
-                          <span className="inline-flex items-center px-2.5 py-1 rounded-lg text-[11px] font-bold bg-amber-50 text-amber-800 border border-amber-300">
-                            <Lock className="w-3.5 h-3.5 mr-1 text-amber-600" />
-                            🔒 Locked (Read Only)
-                          </span>
-                        ) : (
-                          <span className="inline-flex items-center px-2.5 py-1 rounded-lg text-[11px] font-bold bg-emerald-50 text-emerald-800 border border-emerald-300">
-                            <Unlock className="w-3.5 h-3.5 mr-1 text-emerald-600" />
-                            🔓 Unlocked (Editable)
-                          </span>
-                        )}
+                      <td className="py-4 px-4">
+                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                          {displayModules.map((masterType) => {
+                            const isLocked = isProjectMasterLocked(proj, masterType);
+                            const isRegistered = registeredModules.includes(masterType);
+
+                            return (
+                              <div
+                                key={masterType}
+                                className={`p-2.5 rounded-xl border flex flex-col justify-between space-y-2 transition-all ${
+                                  isLocked
+                                    ? 'bg-amber-50/70 border-amber-200 text-amber-900 shadow-2xs'
+                                    : 'bg-slate-50 border-slate-200 text-slate-800'
+                                }`}
+                              >
+                                <div className="flex items-center justify-between">
+                                  <span className="font-bold text-[11px] text-slate-900">
+                                    {masterType}
+                                  </span>
+                                  {isLocked ? (
+                                    <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-extrabold bg-amber-200 text-amber-900">
+                                      <Lock className="w-2.5 h-2.5 mr-1" />
+                                      LOCKED
+                                    </span>
+                                  ) : (
+                                    <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-extrabold bg-emerald-100 text-emerald-800">
+                                      <Unlock className="w-2.5 h-2.5 mr-1" />
+                                      EDITABLE
+                                    </span>
+                                  )}
+                                </div>
+
+                                <button
+                                  type="button"
+                                  onClick={() => handleToggleMasterLock(proj, masterType)}
+                                  className={`w-full py-1 px-2 rounded-lg text-[10px] font-bold transition-all flex items-center justify-center ${
+                                    isLocked
+                                      ? 'bg-white hover:bg-amber-100 text-amber-900 border border-amber-300 shadow-2xs'
+                                      : 'bg-white hover:bg-slate-200 text-slate-700 border border-slate-300 shadow-2xs'
+                                  }`}
+                                >
+                                  {isLocked ? (
+                                    <>
+                                      <Unlock className="w-3 h-3 mr-1 text-amber-600" />
+                                      Unlock {masterType.split(' ')[0]}
+                                    </>
+                                  ) : (
+                                    <>
+                                      <Lock className="w-3 h-3 mr-1 text-slate-500" />
+                                      Lock {masterType.split(' ')[0]}
+                                    </>
+                                  )}
+                                </button>
+                              </div>
+                            );
+                          })}
+                        </div>
                       </td>
 
-                      <td className="py-3.5 px-4 text-right space-x-2">
-                        {/* Lock / Unlock Toggle Button */}
-                        <button
-                          onClick={() => handleToggleLock(proj)}
-                          className={`inline-flex items-center px-3 py-1.5 rounded-xl text-xs font-bold transition-all shadow-sm ${
-                            isLocked
-                              ? 'bg-amber-100 hover:bg-amber-200 text-amber-900 border border-amber-300'
-                              : 'bg-slate-100 hover:bg-slate-200 text-slate-800 border border-slate-300'
-                          }`}
-                        >
-                          {isLocked ? (
-                            <>
-                              <Unlock className="w-3.5 h-3.5 mr-1 text-amber-700" />
-                              Unlock Project
-                            </>
-                          ) : (
-                            <>
-                              <Lock className="w-3.5 h-3.5 mr-1 text-slate-600" />
-                              Lock Project
-                            </>
-                          )}
-                        </button>
-
-                        {/* Delete Project Trigger */}
+                      <td className="py-4 px-4 text-right align-top">
                         <button
                           onClick={() => handleOpenDeleteModal(proj)}
-                          className="inline-flex items-center px-3 py-1.5 rounded-xl text-xs font-bold bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 transition-all shadow-sm"
+                          className="inline-flex items-center px-3.5 py-2 rounded-xl text-xs font-bold bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 transition-all shadow-sm"
                         >
                           <Trash2 className="w-3.5 h-3.5 mr-1 text-rose-600" />
                           Delete Project

@@ -27,7 +27,19 @@ import {
 
 export const FieldMappingTab: React.FC = () => {
   const { currentProject, selectedMaster } = useProject();
-  const isLocked = isProjectLocked(currentProject || '');
+  const [isLocked, setIsLocked] = useState<boolean>(() =>
+    isProjectLocked(currentProject || '', selectedMaster)
+  );
+
+  useEffect(() => {
+    const updateLock = () => {
+      setIsLocked(isProjectLocked(currentProject || '', selectedMaster));
+    };
+    updateLock();
+    window.addEventListener('project_lock_updated', updateLock);
+    return () => window.removeEventListener('project_lock_updated', updateLock);
+  }, [currentProject, selectedMaster]);
+
   const schema = loadMasterSchema(selectedMaster);
 
   const viewOptions = Object.keys(schema);

@@ -110,36 +110,99 @@ export async function revokePermission(permissionId: string): Promise<boolean> {
   return !error;
 }
 
-export function isProjectLocked(projectName: string): boolean {
-  if (!projectName) return false;
+export function isProjectMasterLocked(projectName: string, masterType: MasterType): boolean {
+  if (!projectName || !masterType) return false;
   try {
-    const val = localStorage.getItem('project_lock_' + projectName.trim());
-    return val === 'true';
+    const pName = projectName.trim();
+    const mType = masterType.trim();
+    const specificVal = localStorage.getItem(`project_lock_${pName}__${mType}`);
+    if (specificVal !== null) {
+      return specificVal === 'true';
+    }
+    // Fallback: check global project lock
+    const globalVal = localStorage.getItem(`project_lock_${pName}`);
+    return globalVal === 'true';
   } catch (e) {
     return false;
   }
 }
 
-export async function fetchProjectLockStatuses(): Promise<Record<string, boolean>> {
-  const result: Record<string, boolean> = {};
+export function isProjectLocked(projectName: string, masterType?: MasterType): boolean {
+  if (!projectName) return false;
+  if (masterType) {
+    return isProjectMasterLocked(projectName, masterType);
+  }
+  const masters: MasterType[] = ['Material Master', 'Vendor Master', 'Customer Master'];
+  return masters.some((m) => isProjectMasterLocked(projectName, m));
+}
+
+export async function fetchProjectMasterLockStatuses(): Promise<Record<string, Record<string, boolean>>> {
+  const result: Record<string, Record<string, boolean>> = {};
   try {
     for (let i = 0; i < localStorage.length; i++) {
       const key = localStorage.key(i);
       if (key && key.startsWith('project_lock_')) {
-        const pName = key.replace('project_lock_', '');
-        result[pName] = localStorage.getItem(key) === 'true';
+        const raw = key.replace('project_lock_', '');
+        if (raw.includes('__')) {
+          const [pName, mType] = raw.split('__');
+          if (!result[pName]) result[pName] = {};
+          result[pName][mType] = localStorage.getItem(key) === 'true';
+        } else {
+          // Global lock fallback
+          const isLocked = localStorage.getItem(key) === 'true';
+          if (!result[raw]) result[raw] = {};
+          ['Material Master', 'Vendor Master', 'Customer Master'].forEach((m) => {
+            if (result[raw][m] === undefined) {
+              result[raw][m] = isLocked;
+            }
+          });
+        }
       }
     }
   } catch (e) {}
   return result;
 }
 
+export async function fetchProjectLockStatuses(): Promise<Record<string, boolean>> {
+  const result: Record<string, boolean> = {};
+  try {
+    const masterLocks = await fetchProjectMasterLockStatuses();
+    Object.keys(masterLocks).forEach((pName) => {
+      const locksObj = masterLocks[pName];
+      result[pName] = Object.values(locksObj).some(Boolean);
+    });
+  } catch (e) {}
+  return result;
+}
+
+export async function setProjectMasterLockStatus(
+  projectName: string,
+  masterType: MasterType,
+  locked: boolean
+): Promise<boolean> {
+  try {
+    const pName = projectName.trim();
+    const mType = masterType.trim();
+    localStorage.setItem(`project_lock_${pName}__${mType}`, locked ? 'true' : 'false');
+    try {
+      window.dispatchEvent(new Event('project_lock_updated'));
+    } catch (e) {}
+    return true;
+  } catch (e) {
+    console.warn('Error setting master lock status:', e);
+    return true;
+  }
+}
+
 export async function setProjectLockStatus(projectName: string, locked: boolean): Promise<boolean> {
   try {
-    const cleanName = projectName.trim();
-    localStorage.setItem('project_lock_' + cleanName, locked ? 'true' : 'false');
+    const pName = projectName.trim();
+    localStorage.setItem('project_lock_' + pName, locked ? 'true' : 'false');
+    ['Material Master', 'Vendor Master', 'Customer Master'].forEach((m) => {
+      localStorage.setItem(`project_lock_${pName}__${m}`, locked ? 'true' : 'false');
+    });
     try {
-      await supabase.from('migration_projects').update({ is_locked: locked }).eq('project_name', cleanName);
+      window.dispatchEvent(new Event('project_lock_updated'));
     } catch (e) {}
     return true;
   } catch (e) {

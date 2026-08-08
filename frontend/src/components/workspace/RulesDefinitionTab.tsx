@@ -152,7 +152,19 @@ const MultiSelectFilter: React.FC<MultiSelectFilterProps> = ({
 
 export const RulesDefinitionTab: React.FC = () => {
   const { currentProject, selectedMaster } = useProject();
-  const isLocked = isProjectLocked(currentProject || '');
+  const [isLocked, setIsLocked] = useState<boolean>(() =>
+    isProjectLocked(currentProject || '', selectedMaster)
+  );
+
+  useEffect(() => {
+    const updateLock = () => {
+      setIsLocked(isProjectLocked(currentProject || '', selectedMaster));
+    };
+    updateLock();
+    window.addEventListener('project_lock_updated', updateLock);
+    return () => window.removeEventListener('project_lock_updated', updateLock);
+  }, [currentProject, selectedMaster]);
+
   const config = MASTER_CONFIGS[selectedMaster];
   const ruleKeys = config.ruleKeys;
 
