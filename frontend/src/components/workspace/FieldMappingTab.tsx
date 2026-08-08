@@ -1,8 +1,8 @@
 // frontend/src/components/workspace/FieldMappingTab.tsx
 import React, { useEffect, useState } from 'react';
 import { useProject } from '../../context/ProjectContext';
-import { getLegacyViewInfo, loadMasterSchema } from '../../utils/schemaLoader';
-import { fetchMappingsForProject, saveMapping } from '../../services/mappingService';
+import { getLegacyViewInfo, loadMasterSchema, getTechnicalFieldName } from '../../utils/schemaLoader';
+import { fetchMappingsForProject, saveMappingsBatch, FieldMappingItem } from '../../services/mappingService';
 import { isProjectLocked } from '../../services/projectService';
 import { FieldMapping, MappingType, SchemaField } from '../../types';
 import { MAPPING_OPTIONS } from '../../utils/constants';
@@ -48,6 +48,9 @@ export const FieldMappingTab: React.FC = () => {
   const [searchTerm, setSearchTerm] = useState<string>('');
   const [showSavedContext, setShowSavedContext] = useState<boolean>(false);
 
+  // Dirty Field Tracking State (remembers modified fields to optimize saving)
+  const [dirtyFields, setDirtyFields] = useState<Set<string>>(new Set());
+
   // Saved Drawer Filter & Sorting State
   const [drawerSearch, setDrawerSearch] = useState<string>('');
   const [drawerRuleFilter, setDrawerRuleFilter] = useState<string>('all');
@@ -74,6 +77,7 @@ export const FieldMappingTab: React.FC = () => {
     } else {
       setSelectedView('');
     }
+    setDirtyFields(new Set());
   }, [selectedMaster]);
 
   // Load existing saved mappings for project
@@ -99,11 +103,13 @@ export const FieldMappingTab: React.FC = () => {
               sourceField: m.source_field || (m.mapping_type === 'Based on User Input' ? m.fixed_value : '') || ''
             };
 
+            const techKey = getTechnicalFieldName(m.field_name, selectedMaster);
+            stateMap[techKey] = entry;
             stateMap[m.field_name] = entry;
 
             // Also associate by description if available in schema
             const sf = currentViewFields.find(
-              (f) => f.field_name === m.field_name || f.description === m.field_name
+              (f) => f.field_name === m.field_name || f.description === m.field_name || f.field_name === techKey
             );
             if (sf && sf.description) {
               stateMap[sf.description] = entry;
@@ -112,6 +118,7 @@ export const FieldMappingTab: React.FC = () => {
         }
       });
       setCurrentFormState(stateMap);
+      setDirtyFields(new Set());
       setLoading(false);
     });
   }, [currentProject, selectedMaster, selectedView]);
@@ -221,6 +228,13 @@ export const FieldMappingTab: React.FC = () => {
       [field.field_name]: updatedState,
       ...(field.description ? { [field.description]: updatedState } : {})
     }));
+
+    // Mark field as dirty/modified
+    setDirtyFields((prev) => {
+      const next = new Set(prev);
+      next.add(field.field_name);
+      return next;
+    });
   };
 
   const handleSaveAll = async () => {
@@ -233,32 +247,42 @@ export const FieldMappingTab: React.FC = () => {
       return;
     }
 
+    const fieldsInView = schema[selectedView] || [];
+    const changedFields = fieldsInView.filter((f) => dirtyFields.has(f.field_name));
+
+    if (changedFields.length === 0) {
+      setToast({
+        type: 'success',
+        msg: `No mapping changes detected for ${selectedView}.`
+      });
+      return;
+    }
+
     setSaving(true);
     setToast(null);
 
-    let successCount = 0;
-    const fieldsToSave = schema[selectedView] || [];
-
-    for (const field of fieldsToSave) {
+    const itemsToSave: FieldMappingItem[] = changedFields.map((field) => {
       const state = getFieldState(field);
+      return {
+        fieldName: field.field_name,
+        fieldDescription: field.description,
+        mappingType: state.mappingType,
+        sourceField: state.sourceField,
+        fixedValue: state.fixedValue,
+        isMandatory: field.is_mandatory
+      };
+    });
 
-      const ok = await saveMapping(
-        currentProject,
-        selectedView,
-        field.field_name,
-        state.mappingType,
-        state.sourceField,
-        state.fixedValue,
-        field.is_mandatory
-      );
-
-      if (ok) successCount++;
-    }
+    const successCount = await saveMappingsBatch(currentProject, selectedView, itemsToSave);
 
     setSaving(false);
     if (successCount > 0) {
-      setToast({ type: 'success', msg: `Successfully saved ${successCount} field mappings for ${selectedView}!` });
-      // Refresh saved mappings
+      setToast({
+        type: 'success',
+        msg: `Successfully saved & updated ${successCount} modified field mapping(s) for ${selectedView}!`
+      });
+      setDirtyFields(new Set());
+      // Refresh saved mappings from DB
       fetchMappingsForProject(currentProject).then(setSavedMappings);
     } else {
       setToast({ type: 'error', msg: 'Failed to save field mappings.' });
