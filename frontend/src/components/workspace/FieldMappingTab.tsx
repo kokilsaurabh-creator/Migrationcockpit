@@ -3,6 +3,7 @@ import React, { useEffect, useState } from 'react';
 import { useProject } from '../../context/ProjectContext';
 import { getLegacyViewInfo, loadMasterSchema } from '../../utils/schemaLoader';
 import { fetchMappingsForProject, saveMapping } from '../../services/mappingService';
+import { isProjectLocked } from '../../services/projectService';
 import { FieldMapping, MappingType, SchemaField } from '../../types';
 import { MAPPING_OPTIONS } from '../../utils/constants';
 import { StatusBadge } from '../common/StatusBadge';
@@ -20,11 +21,13 @@ import {
   ArrowUpDown,
   ArrowUp,
   ArrowDown,
-  ChevronRight
+  ChevronRight,
+  Lock
 } from 'lucide-react';
 
 export const FieldMappingTab: React.FC = () => {
   const { currentProject, selectedMaster } = useProject();
+  const isLocked = isProjectLocked(currentProject || '');
   const schema = loadMasterSchema(selectedMaster);
 
   const viewOptions = Object.keys(schema);
@@ -72,15 +75,27 @@ export const FieldMappingTab: React.FC = () => {
       const [cleanSelectedView] = getLegacyViewInfo(selectedView);
       const stateMap: Record<string, { mappingType: MappingType; fixedValue: string; sourceField: string }> = {};
 
+      const currentViewFields = schema[selectedView] || [];
+
       mappings.forEach((m) => {
         const [cleanMView] = getLegacyViewInfo(m.view_name);
         if (m.view_name === selectedView || cleanMView === cleanSelectedView) {
           if (m.field_name) {
-            stateMap[m.field_name] = {
+            const entry = {
               mappingType: m.mapping_type,
               fixedValue: m.fixed_value || '',
-              sourceField: m.source_field || ''
+              sourceField: m.source_field || (m.mapping_type === 'Based on User Input' ? m.fixed_value : '') || ''
             };
+
+            stateMap[m.field_name] = entry;
+
+            // Also associate by description if available in schema
+            const sf = currentViewFields.find(
+              (f) => f.field_name === m.field_name || f.description === m.field_name
+            );
+            if (sf && sf.description) {
+              stateMap[sf.description] = entry;
+            }
           }
         }
       });
@@ -117,8 +132,19 @@ export const FieldMappingTab: React.FC = () => {
         const query = drawerSearch.toLowerCase().trim();
         const matchView = m.view_name.toLowerCase().includes(query);
         const matchField = m.field_name.toLowerCase().includes(query);
+        const matchSource = (m.source_field || '').toLowerCase().includes(query);
         const matchVal = (m.fixed_value || '').toLowerCase().includes(query);
-        if (!matchView && !matchField && !matchVal) return false;
+
+        let matchDesc = false;
+        const viewFields = schema[m.view_name] || [];
+        const sf = viewFields.find(
+          (f) => f.field_name === m.field_name || f.description === m.field_name
+        );
+        if (sf && sf.description) {
+          matchDesc = sf.description.toLowerCase().includes(query);
+        }
+
+        if (!matchView && !matchField && !matchSource && !matchVal && !matchDesc) return false;
       }
       return true;
     })
@@ -187,6 +213,14 @@ export const FieldMappingTab: React.FC = () => {
 
   const handleSaveAll = async () => {
     if (!currentProject || !selectedView) return;
+    if (isLocked) {
+      setToast({
+        type: 'error',
+        msg: `Project '${currentProject}' is LOCKED by Admin. Unlock the project in Admin Panel to commit mapping changes.`
+      });
+      return;
+    }
+
     setSaving(true);
     setToast(null);
 
@@ -199,7 +233,7 @@ export const FieldMappingTab: React.FC = () => {
       const ok = await saveMapping(
         currentProject,
         selectedView,
-        field.description || field.field_name,
+        field.field_name,
         state.mappingType,
         state.sourceField,
         state.fixedValue,
@@ -222,6 +256,24 @@ export const FieldMappingTab: React.FC = () => {
   return (
     <div className="space-y-6">
       {toast && <Toast type={toast.type} message={toast.msg} onClose={() => setToast(null)} />}
+
+      {/* Lock Status Warning Banner */}
+      {isLocked && (
+        <div className="bg-amber-50 border border-amber-300 p-4 rounded-2xl flex items-center justify-between text-amber-900 shadow-sm">
+          <div className="flex items-center space-x-3">
+            <Lock className="w-5 h-5 text-amber-600 shrink-0" />
+            <div>
+              <h4 className="text-xs font-extrabold uppercase tracking-wide">Project Field Mappings Locked</h4>
+              <p className="text-[11px] font-medium text-amber-800 mt-0.5">
+                Admin has locked changes for project '{currentProject}'. Field mappings are view-only and cannot be committed.
+              </p>
+            </div>
+          </div>
+          <span className="px-2.5 py-1 text-[10px] font-extrabold bg-amber-200 text-amber-900 rounded-lg uppercase shrink-0">
+            🔒 Read Only
+          </span>
+        </div>
+      )}
 
       {/* Header & Controls Card */}
       <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
@@ -246,13 +298,18 @@ export const FieldMappingTab: React.FC = () => {
 
           <button
             onClick={handleSaveAll}
-            disabled={saving}
-            className="inline-flex items-center px-4 py-2 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-xl shadow-md transition-all disabled:opacity-50"
+            disabled={saving || isLocked}
+            className="inline-flex items-center px-4 py-2 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-xl shadow-md transition-all disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {saving ? (
               <>
                 <Loader2 className="w-4 h-4 mr-1.5 animate-spin" />
                 Saving...
+              </>
+            ) : isLocked ? (
+              <>
+                <Lock className="w-4 h-4 mr-1.5" />
+                Mappings Locked
               </>
             ) : (
               <>

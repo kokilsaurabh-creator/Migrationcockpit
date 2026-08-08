@@ -5,12 +5,14 @@ import { loadMasterSchema } from '../../utils/schemaLoader';
 import { fetchMappingsForProject } from '../../services/mappingService';
 import { fetchProjectRules } from '../../services/rulesService';
 import { generateXmlPayload, expandRawRecords } from '../../services/xmlGeneratorService';
+import { checkMasterDataDuplicates } from '../../services/duplicateCheckService';
 import { MASTER_CONFIGS } from '../../utils/constants';
-import { FieldMapping, FixedRuleRecord } from '../../types';
+import { FieldMapping, FixedRuleRecord, DuplicateCheckResult } from '../../types';
 import { DataGrid } from '../common/DataGrid';
 import { Toast } from '../common/Toast';
+import { DuplicateWarningModal } from './DuplicateWarningModal';
 import * as XLSX from 'xlsx';
-import { FileCode, Download, Upload, Play, CheckCircle2, Loader2, FileSpreadsheet, Sparkles } from 'lucide-react';
+import { FileCode, Download, Upload, Play, CheckCircle2, Loader2, FileSpreadsheet, Sparkles, ShieldAlert, ShieldCheck } from 'lucide-react';
 
 export const XmlGenerationTab: React.FC = () => {
   const { currentProject, selectedMaster } = useProject();
@@ -27,6 +29,10 @@ export const XmlGenerationTab: React.FC = () => {
 
   const [loading, setLoading] = useState<boolean>(true);
   const [executing, setExecuting] = useState<boolean>(false);
+  const [duplicateChecking, setDuplicateChecking] = useState<boolean>(false);
+  const [duplicateResult, setDuplicateResult] = useState<DuplicateCheckResult | null>(null);
+  const [showDuplicateModal, setShowDuplicateModal] = useState<boolean>(false);
+
   const [toast, setToast] = useState<{ type: 'success' | 'error'; msg: string } | null>(null);
 
   useEffect(() => {
@@ -40,7 +46,6 @@ export const XmlGenerationTab: React.FC = () => {
       setAllMappings(mappings);
       setSavedRules(rules);
 
-      // Collect all valid field names & descriptions strictly belonging to selectedMaster schema
       const validMasterFields = new Set<string>();
       Object.keys(schema).forEach((viewName) => {
         const fields = schema[viewName] || [];
@@ -50,7 +55,6 @@ export const XmlGenerationTab: React.FC = () => {
         });
       });
 
-      // Determine user input mapped fields strictly for selectedMaster
       const userMappedFields: string[] = [];
       mappings.forEach((m) => {
         if (
@@ -100,6 +104,7 @@ export const XmlGenerationTab: React.FC = () => {
         const expanded = expandRawRecords(selectedMaster, savedRules, data);
         setExpandedCount(expanded.length);
         setGeneratedXml(null);
+        setDuplicateResult(null);
         setToast({
           type: 'success',
           msg: `Loaded ${data.length} raw records (${expanded.length} total expanded combinations via * wildcard logic)!`
@@ -109,6 +114,41 @@ export const XmlGenerationTab: React.FC = () => {
       }
     };
     reader.readAsBinaryString(file);
+  };
+
+  // Duplicate Check Handler
+  const handleCheckDuplicates = async () => {
+    if (uploadedRecords.length === 0) {
+      setToast({ type: 'error', msg: 'Please upload raw data Excel file first.' });
+      return;
+    }
+
+    setDuplicateChecking(true);
+    setToast(null);
+
+    try {
+      const firstRecord = uploadedRecords[0];
+      const result = await checkMasterDataDuplicates(
+        currentProject || 'DEV_01',
+        selectedMaster,
+        firstRecord
+      );
+
+      setDuplicateResult(result);
+      setDuplicateChecking(false);
+
+      if (result.has_duplicates) {
+        setShowDuplicateModal(true);
+      } else {
+        setToast({
+          type: 'success',
+          msg: '✅ SAP Duplicate Check Passed: No duplicates found in SAP S/4HANA!'
+        });
+      }
+    } catch (err: any) {
+      setDuplicateChecking(false);
+      setToast({ type: 'error', msg: `Duplicate Check Error: ${err.message}` });
+    }
   };
 
   // Execute Transformation & XML Payload Generation
@@ -155,13 +195,11 @@ export const XmlGenerationTab: React.FC = () => {
     document.body.removeChild(link);
   };
 
-  // Construct DataGrid columns dynamically from templateColumns
   const gridColumns = templateColumns.map((col) => ({
     key: col,
     header: col
   }));
 
-  // Determine wildcard fields message
   const wildcardInfo =
     selectedMaster === 'Material Master'
       ? 'Plant & Distribution Channel'
@@ -172,6 +210,19 @@ export const XmlGenerationTab: React.FC = () => {
   return (
     <div className="space-y-6">
       {toast && <Toast type={toast.type} message={toast.msg} onClose={() => setToast(null)} />}
+
+      {/* Duplicate Warning Modal */}
+      {showDuplicateModal && duplicateResult && (
+        <DuplicateWarningModal
+          result={duplicateResult}
+          inputRecord={uploadedRecords[0]}
+          onCancel={() => setShowDuplicateModal(false)}
+          onProceed={() => {
+            setShowDuplicateModal(false);
+            handleExecuteMigration();
+          }}
+        />
+      )}
 
       {/* Step 1: Upload Template Download Card */}
       <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
@@ -209,13 +260,33 @@ export const XmlGenerationTab: React.FC = () => {
             </p>
           </div>
 
-          <div className="flex items-center space-x-3">
+          <div className="flex flex-wrap items-center gap-3">
             <label className="inline-flex items-center px-4 py-2 text-xs font-bold text-slate-700 bg-slate-100 hover:bg-slate-200 border border-slate-300 rounded-xl cursor-pointer transition-colors">
               <Upload className="w-4 h-4 mr-1.5 text-blue-600" />
               <span>Select Raw Excel File</span>
               <input type="file" accept=".xlsx, .xls" onChange={handleFileUpload} className="hidden" />
             </label>
 
+            {/* Check Duplicates Button */}
+            <button
+              onClick={handleCheckDuplicates}
+              disabled={duplicateChecking || uploadedRecords.length === 0}
+              className="inline-flex items-center px-4 py-2 text-xs font-bold text-amber-900 bg-amber-100 hover:bg-amber-200 active:bg-amber-300 border border-amber-300 rounded-xl shadow-sm transition-all disabled:opacity-50"
+            >
+              {duplicateChecking ? (
+                <>
+                  <Loader2 className="w-4 h-4 mr-1.5 animate-spin" />
+                  Checking SAP...
+                </>
+              ) : (
+                <>
+                  <ShieldAlert className="w-4 h-4 mr-1.5 text-amber-600" />
+                  Check Duplicates
+                </>
+              )}
+            </button>
+
+            {/* Execute Migration Button */}
             <button
               onClick={handleExecuteMigration}
               disabled={executing || uploadedRecords.length === 0}
@@ -229,7 +300,7 @@ export const XmlGenerationTab: React.FC = () => {
               ) : (
                 <>
                   <Play className="w-4 h-4 mr-1.5 fill-current" />
-                  Execute Migration Logic
+                  Generate XML
                 </>
               )}
             </button>
@@ -246,9 +317,29 @@ export const XmlGenerationTab: React.FC = () => {
                   Detected {uploadedRecords.length} Raw Records ({expandedCount} Total Expanded Combinations via * Logic)
                 </span>
               </div>
-              <span className="text-[11px] font-semibold text-slate-500">
-                Rules Evaluated: {savedRules.length}
-              </span>
+
+              {duplicateResult && (
+                <div className="flex items-center space-x-2">
+                  <span
+                    className={`inline-flex items-center px-2.5 py-1 rounded-lg text-[11px] font-bold ${
+                      duplicateResult.highest_risk_tier === 'HARD'
+                        ? 'bg-rose-100 text-rose-800 border border-rose-300'
+                        : duplicateResult.highest_risk_tier === 'SOFT'
+                        ? 'bg-amber-100 text-amber-800 border border-amber-300'
+                        : 'bg-emerald-100 text-emerald-800 border border-emerald-300'
+                    }`}
+                  >
+                    {duplicateResult.highest_risk_tier === 'HARD' ? (
+                      <ShieldAlert className="w-3.5 h-3.5 mr-1 text-rose-600" />
+                    ) : duplicateResult.highest_risk_tier === 'SOFT' ? (
+                      <ShieldAlert className="w-3.5 h-3.5 mr-1 text-amber-600" />
+                    ) : (
+                      <ShieldCheck className="w-3.5 h-3.5 mr-1 text-emerald-600" />
+                    )}
+                    SAP Duplicate Status: {duplicateResult.highest_risk_tier} RISK
+                  </span>
+                </div>
+              )}
             </div>
             <DataGrid data={uploadedRecords} columns={gridColumns} pageSize={10} />
           </div>

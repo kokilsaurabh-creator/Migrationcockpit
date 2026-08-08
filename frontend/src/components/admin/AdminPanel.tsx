@@ -4,10 +4,12 @@ import { Navbar } from '../common/Navbar';
 import { CreateUserForm } from './CreateUserForm';
 import { UserAccountsTable } from './UserAccountsTable';
 import { PermissionManager } from './PermissionManager';
-import { Shield, UserPlus, Users, Key } from 'lucide-react';
+import { SAPTenantAdmin } from './SAPTenantAdmin';
+import { ProjectManager } from './ProjectManager';
+import { Shield, UserPlus, Users, Key, Server, FolderCog } from 'lucide-react';
 
 export const AdminPanel: React.FC = () => {
-  const [activeTab, setActiveTab] = useState<'create' | 'accounts' | 'permissions'>('accounts');
+  const [activeTab, setActiveTab] = useState<'accounts' | 'create' | 'permissions' | 'sap_tenants' | 'projects'>('accounts');
 
   return (
     <div className="min-h-screen bg-slate-100 flex flex-col font-sans">
@@ -21,16 +23,16 @@ export const AdminPanel: React.FC = () => {
               <Shield className="w-6 h-6" />
             </div>
             <div>
-              <h1 className="text-xl font-extrabold tracking-tight">Admin User & Security Management</h1>
+              <h1 className="text-xl font-extrabold tracking-tight">Admin Security & SAP Tenant Hub</h1>
               <p className="text-xs text-slate-400 font-medium mt-0.5">
-                Manage accounts, role assignments, and RBAC project permissions (MM, P2P, SD)
+                Manage accounts, project RBAC permissions, SAP S/4HANA multi-credential tenant connections, and project lifecycle governance.
               </p>
             </div>
           </div>
         </div>
 
         {/* Sub Tabs */}
-        <div className="bg-white p-1.5 rounded-xl border border-slate-200 shadow-sm flex items-center space-x-2 max-w-fit">
+        <div className="bg-white p-1.5 rounded-xl border border-slate-200 shadow-sm flex flex-wrap items-center gap-2 max-w-fit">
           <button
             onClick={() => setActiveTab('accounts')}
             className={`inline-flex items-center px-4 py-2 rounded-lg text-xs font-bold transition-all ${
@@ -66,6 +68,30 @@ export const AdminPanel: React.FC = () => {
             <Key className="w-4 h-4 mr-2" />
             Permission Mapping
           </button>
+
+          <button
+            onClick={() => setActiveTab('sap_tenants')}
+            className={`inline-flex items-center px-4 py-2 rounded-lg text-xs font-bold transition-all ${
+              activeTab === 'sap_tenants'
+                ? 'bg-slate-900 text-white shadow-sm'
+                : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+            }`}
+          >
+            <Server className="w-4 h-4 mr-2 text-blue-400" />
+            SAP Tenant Connections
+          </button>
+
+          <button
+            onClick={() => setActiveTab('projects')}
+            className={`inline-flex items-center px-4 py-2 rounded-lg text-xs font-bold transition-all ${
+              activeTab === 'projects'
+                ? 'bg-slate-900 text-white shadow-sm'
+                : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+            }`}
+          >
+            <FolderCog className="w-4 h-4 mr-2 text-indigo-400" />
+            Project Governance
+          </button>
         </div>
 
         {/* Tab Content */}
@@ -73,8 +99,11 @@ export const AdminPanel: React.FC = () => {
           {activeTab === 'accounts' && <UserAccountsTable />}
           {activeTab === 'create' && <CreateUserForm onUserCreated={() => setActiveTab('accounts')} />}
           {activeTab === 'permissions' && <PermissionManager />}
+          {activeTab === 'sap_tenants' && <SAPTenantAdmin />}
+          {activeTab === 'projects' && <ProjectManager />}
         </div>
       </main>
     </div>
   );
 };
+

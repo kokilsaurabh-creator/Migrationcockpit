@@ -40,7 +40,9 @@ export async function saveMapping(
     const existing = existingRows?.find((m) => {
       const [cleanMView] = getLegacyViewInfo(m.view_name);
       const isViewMatch = m.view_name === viewName || cleanMView === cleanViewName;
-      const isFieldMatch = m.field_name === fieldName || m.field_name === sourceField;
+      const isFieldMatch =
+        m.field_name.trim().toLowerCase() === fieldName.trim().toLowerCase() ||
+        (sourceField && m.field_name.trim().toLowerCase() === sourceField.trim().toLowerCase());
       return isViewMatch && isFieldMatch;
     });
 

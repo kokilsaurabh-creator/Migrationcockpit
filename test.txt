@@ -1,1 +1,3 @@
-hello
+in the admin panel i should have provision to delete the project , this project deletion will delete all the data from the DB as well 
+
+Also in this provision i should have a option to lock the project's field mapping and rule engine , even admin shloud not be able to commit any changes to field mapping and rule engine if locked , to make any changes admin will have to open the project and than only changes to project mapping and rules will be possible , this is becuase unwanted changes are happening to project mapping rules and causing issues 

@@ -71,3 +71,62 @@ export interface MasterConfig {
   badgeColor: string;
   badgeBg: string;
 }
+
+export interface SAPProjectConfig {
+  project_id: string;
+  project_name: string;
+  base_url: string;
+  bp_comm_user: string;
+  bp_password_masked: string;
+  material_comm_user: string;
+  material_password_masked: string;
+  custom_pan_endpoint?: string | null;
+  pan_comm_user?: string | null;
+  pan_password_masked?: string | null;
+}
+
+export interface ProjectConfigCreatePayload {
+  project_id: string;
+  project_name: string;
+  base_url: string;
+  bp_comm_user: string;
+  bp_password?: string;
+  material_comm_user: string;
+  material_password?: string;
+  custom_pan_endpoint?: string;
+  pan_comm_user?: string;
+  pan_password?: string;
+}
+
+export interface TestConnectionPayload {
+  project_id?: string;
+  service_type: 'BP' | 'MATERIAL' | 'PAN';
+  base_url?: string;
+  comm_user?: string;
+  password?: string;
+  custom_pan_endpoint?: string;
+}
+
+export interface TestConnectionResult {
+  success: boolean;
+  service_type: string;
+  message: string;
+  status_code: number;
+}
+
+export interface MatchedSAPRecord {
+  sap_id: string;
+  record_name: string;
+  match_tier: 'HARD' | 'SOFT';
+  match_reason: string;
+  similarity_score: number;
+  details: Record<string, any>;
+}
+
+export interface DuplicateCheckResult {
+  has_duplicates: boolean;
+  highest_risk_tier: 'HARD' | 'SOFT' | 'NONE';
+  matches: MatchedSAPRecord[];
+  summary: string;
+}
+

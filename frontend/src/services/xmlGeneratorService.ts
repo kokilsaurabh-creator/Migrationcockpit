@@ -178,7 +178,19 @@ export async function generateXmlPayload(
       }
     }
 
-    // Resolve mappings for each field
+    // Determine primary key value for this record
+    const pkVal =
+      normalizeVal(material[primaryKey]) ||
+      normalizeVal(material['Product Number']) ||
+      normalizeVal(material['PRODUCT']) ||
+      normalizeVal(material['MATNR']) ||
+      normalizeVal(material['Material']) ||
+      normalizeVal(material['Customer Number']) ||
+      normalizeVal(material['Customer']) ||
+      normalizeVal(material['Supplier Number']) ||
+      normalizeVal(material['Vendor Code']);
+
+    // Resolve mappings for each field across all sheets
     activeMappings.forEach((mapConfig) => {
       const rawView = mapConfig.view_name;
       const sheetName = rawView.includes('. ') ? rawView.split('. ')[1] : rawView;
@@ -187,6 +199,11 @@ export async function generateXmlPayload(
 
       const fieldName = mapConfig.field_name;
       const mappingType = mapConfig.mapping_type;
+      const viewSchemaFields = schema[sheetName] || [];
+      const sf = viewSchemaFields.find(
+        (f) => f.field_name === fieldName || f.description === fieldName
+      );
+      const descName = sf?.description || fieldName;
 
       if (!finalSapData[sheetName]) {
         finalSapData[sheetName] = [];
@@ -196,23 +213,52 @@ export async function generateXmlPayload(
         finalSapData[sheetName].push({});
       }
 
+      const rowDict = finalSapData[sheetName][matIndex];
+
+      // Auto-populate primary key on child sheet row if present
+      if (pkVal) {
+        rowDict[primaryKey] = pkVal;
+        rowDict['PRODUCT'] = pkVal;
+        rowDict['Product Number'] = pkVal;
+        rowDict['Customer Number'] = pkVal;
+        rowDict['Supplier Number'] = pkVal;
+        rowDict['Vendor Code'] = pkVal;
+      }
+
       let resolvedValue = '';
       if (mappingType === 'Fixed Values') {
         resolvedValue = mapConfig.fixed_value || '';
       } else if (mappingType === 'Based on Fixed Rules') {
-        resolvedValue = normalizeVal(matchedRule[fieldName]);
+        resolvedValue =
+          normalizeVal(matchedRule[fieldName]) ||
+          normalizeVal(matchedRule[descName]);
       } else if (mappingType === 'Based on User Input') {
-        resolvedValue = normalizeVal(material[fieldName]);
+        resolvedValue =
+          normalizeVal(material[fieldName]) ||
+          normalizeVal(material[descName]) ||
+          (mapConfig.fixed_value && normalizeVal(material[mapConfig.fixed_value])) ||
+          (mapConfig.source_field && normalizeVal(material[mapConfig.source_field])) ||
+          '';
       }
 
-      // Fallback: For key columns (e.g., Plant, Distribution Channel, Sales Organization, Product Number)
-      if (!resolvedValue && (baseColumns.includes(fieldName) || material[fieldName] !== undefined)) {
-        resolvedValue = normalizeVal(material[fieldName]);
+      // Fallback for key columns (Plant, Distribution Channel, Sales Org, etc.)
+      if (
+        !resolvedValue &&
+        (baseColumns.includes(fieldName) ||
+          baseColumns.includes(descName) ||
+          material[fieldName] !== undefined ||
+          material[descName] !== undefined)
+      ) {
+        resolvedValue = normalizeVal(material[fieldName]) || normalizeVal(material[descName]);
       }
 
-      // Only assign if resolvedValue is non-empty or if the field has not been set yet
-      if (resolvedValue !== '' || !finalSapData[sheetName][matIndex][fieldName]) {
-        finalSapData[sheetName][matIndex][fieldName] = resolvedValue;
+      // Assign to both technical field_name AND description so both lookups succeed
+      if (resolvedValue !== '') {
+        rowDict[fieldName] = resolvedValue;
+        if (sf) {
+          if (sf.field_name) rowDict[sf.field_name] = resolvedValue;
+          if (sf.description) rowDict[sf.description] = resolvedValue;
+        }
       }
     });
   });
@@ -242,7 +288,9 @@ export async function generateXmlPayload(
         'Customer Number',
         'Product',
         'Customer',
-        'Vendor'
+        'Vendor',
+        'PRODUCT',
+        'MATNR'
       ];
       for (const alt of alternatives) {
         if (rowDict[alt] && String(rowDict[alt]).trim()) return true;
@@ -275,7 +323,9 @@ export async function generateXmlPayload(
           'Customer Number',
           'Product',
           'Customer',
-          'Vendor'
+          'Vendor',
+          'PRODUCT',
+          'MATNR'
         ]) {
           pkVal = normalizeVal(r[alt]);
           if (pkVal) break;
@@ -287,7 +337,18 @@ export async function generateXmlPayload(
         seenKeys.add(pkVal);
       }
 
-      const rowTuple = exactColumnOrder.map((field) => normalizeVal(r[field])).join('||');
+      const rowTuple = exactColumnOrder
+        .map((field) => {
+          const sf = schemaFields.find((f) => (f.description || f.field_name) === field);
+          const v =
+            r[field] ||
+            (sf && sf.field_name ? r[sf.field_name] : '') ||
+            (sf && sf.description ? r[sf.description] : '') ||
+            '';
+          return normalizeVal(v);
+        })
+        .join('||');
+
       if (seenTuples.has(rowTuple)) continue;
       seenTuples.add(rowTuple);
 
@@ -301,7 +362,12 @@ export async function generateXmlPayload(
     for (const rowDict of dedupedRows) {
       sheetXmlRows += '    <Row>\n';
       for (const field of exactColumnOrder) {
-        const val = rowDict[field] || '';
+        const sf = schemaFields.find((f) => (f.description || f.field_name) === field);
+        const val =
+          rowDict[field] ||
+          (sf && sf.field_name ? rowDict[sf.field_name] : '') ||
+          (sf && sf.description ? rowDict[sf.description] : '') ||
+          '';
         const safeVal = escapeXml(val);
         sheetXmlRows += `        <Cell><Data ss:Type="String">${safeVal}</Data></Cell>\n`;
       }

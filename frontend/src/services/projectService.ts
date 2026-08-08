@@ -109,3 +109,86 @@ export async function revokePermission(permissionId: string): Promise<boolean> {
   const { error } = await supabase.from('user_permissions').delete().eq('id', permissionId);
   return !error;
 }
+
+export function isProjectLocked(projectName: string): boolean {
+  if (!projectName) return false;
+  try {
+    const val = localStorage.getItem('project_lock_' + projectName.trim());
+    return val === 'true';
+  } catch (e) {
+    return false;
+  }
+}
+
+export async function fetchProjectLockStatuses(): Promise<Record<string, boolean>> {
+  const result: Record<string, boolean> = {};
+  try {
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (key && key.startsWith('project_lock_')) {
+        const pName = key.replace('project_lock_', '');
+        result[pName] = localStorage.getItem(key) === 'true';
+      }
+    }
+  } catch (e) {}
+  return result;
+}
+
+export async function setProjectLockStatus(projectName: string, locked: boolean): Promise<boolean> {
+  try {
+    const cleanName = projectName.trim();
+    localStorage.setItem('project_lock_' + cleanName, locked ? 'true' : 'false');
+    try {
+      await supabase.from('migration_projects').update({ is_locked: locked }).eq('project_name', cleanName);
+    } catch (e) {}
+    return true;
+  } catch (e) {
+    console.warn('Error setting project lock status:', e);
+    return true;
+  }
+}
+
+export async function deleteProject(projectName: string): Promise<{ success: boolean; error: string | null }> {
+  try {
+    const cleanName = projectName.trim();
+
+    // 1. Delete from migration_projects
+    await supabase.from('migration_projects').delete().eq('project_name', cleanName);
+
+    // 2. Delete permissions
+    await supabase.from('user_permissions').delete().eq('project_name', cleanName);
+
+    // 3. Delete field mappings
+    await supabase.from('field_mappings').delete().eq('project_name', cleanName);
+
+    // 4. Delete fixed rules
+    await supabase.from('project_fixed_rules').delete().eq('project_name', cleanName);
+
+    // 5. Delete plant/storage location mappings
+    try {
+      await supabase.from('PlantStorageLocationMapping').delete().eq('project_name', cleanName);
+    } catch (e) {}
+
+    // 6. Delete local lock status
+    localStorage.removeItem('project_lock_' + cleanName);
+
+    // 7. Delete local SAP tenant config for this project
+    try {
+      const localSap = localStorage.getItem('sap_tenant_configs_v1');
+      if (localSap) {
+        const configs = JSON.parse(localSap);
+        const filtered = configs.filter(
+          (c: any) =>
+            (c.project_name && c.project_name.trim().toLowerCase() !== cleanName.toLowerCase()) &&
+            (c.project_id && c.project_id.trim().toLowerCase() !== cleanName.toLowerCase())
+        );
+        localStorage.setItem('sap_tenant_configs_v1', JSON.stringify(filtered));
+      }
+    } catch (e) {}
+
+    return { success: true, error: null };
+  } catch (err: any) {
+    console.error('Error deleting project:', err);
+    return { success: false, error: err.message || 'Failed to delete project and purge DB data' };
+  }
+}

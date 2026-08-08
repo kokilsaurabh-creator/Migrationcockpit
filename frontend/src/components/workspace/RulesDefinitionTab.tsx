@@ -3,6 +3,7 @@ import React, { useEffect, useState } from 'react';
 import { useProject } from '../../context/ProjectContext';
 import { fetchProjectRules, saveProjectRules } from '../../services/rulesService';
 import { fetchMappingsForProject } from '../../services/mappingService';
+import { isProjectLocked } from '../../services/projectService';
 import { FixedRuleRecord } from '../../types';
 import { MASTER_CONFIGS } from '../../utils/constants';
 import { Toast } from '../common/Toast';
@@ -24,7 +25,8 @@ import {
   Sparkles,
   Database,
   RotateCcw,
-  CheckSquare
+  CheckSquare,
+  Lock
 } from 'lucide-react';
 
 interface MultiSelectFilterProps {
@@ -149,6 +151,7 @@ const MultiSelectFilter: React.FC<MultiSelectFilterProps> = ({
 
 export const RulesDefinitionTab: React.FC = () => {
   const { currentProject, selectedMaster } = useProject();
+  const isLocked = isProjectLocked(currentProject || '');
   const config = MASTER_CONFIGS[selectedMaster];
   const ruleKeys = config.ruleKeys;
 
@@ -351,6 +354,14 @@ export const RulesDefinitionTab: React.FC = () => {
 
   const handleSaveRules = async () => {
     if (!currentProject) return;
+    if (isLocked) {
+      setToast({
+        type: 'error',
+        msg: `Project '${currentProject}' is LOCKED by Admin. Unlock the project in Admin Panel to commit rule changes.`
+      });
+      return;
+    }
+
     setSaving(true);
     setProgress(0);
 
@@ -373,6 +384,24 @@ export const RulesDefinitionTab: React.FC = () => {
     <div className="space-y-6">
       {toast && <Toast type={toast.type} message={toast.msg} onClose={() => setToast(null)} />}
 
+      {/* Lock Status Warning Banner */}
+      {isLocked && (
+        <div className="bg-amber-50 border border-amber-300 p-4 rounded-2xl flex items-center justify-between text-amber-900 shadow-sm">
+          <div className="flex items-center space-x-3">
+            <Lock className="w-5 h-5 text-amber-600 shrink-0" />
+            <div>
+              <h4 className="text-xs font-extrabold uppercase tracking-wide">Project Rule Engine Locked</h4>
+              <p className="text-[11px] font-medium text-amber-800 mt-0.5">
+                Admin has locked changes for project '{currentProject}'. Rule configurations are view-only and cannot be committed.
+              </p>
+            </div>
+          </div>
+          <span className="px-2.5 py-1 text-[10px] font-extrabold bg-amber-200 text-amber-900 rounded-lg uppercase shrink-0">
+            🔒 Read Only
+          </span>
+        </div>
+      )}
+
       {/* Header Card */}
       <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
@@ -394,21 +423,26 @@ export const RulesDefinitionTab: React.FC = () => {
             Download Excel Rules
           </button>
 
-          <label className="inline-flex items-center px-3.5 py-2 text-xs font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 border border-slate-300 rounded-xl cursor-pointer transition-colors">
+          <label className={`inline-flex items-center px-3.5 py-2 text-xs font-semibold text-slate-700 bg-slate-100 border border-slate-300 rounded-xl transition-colors ${isLocked ? 'opacity-50 cursor-not-allowed' : 'hover:bg-slate-200 cursor-pointer'}`}>
             <Upload className="w-4 h-4 mr-1.5 text-slate-500" />
             <span>Upload Rules Excel</span>
-            <input type="file" accept=".xlsx, .xls" onChange={handleFileUpload} className="hidden" />
+            <input type="file" accept=".xlsx, .xls" onChange={(e) => !isLocked && handleFileUpload(e)} disabled={isLocked} className="hidden" />
           </label>
 
           <button
             onClick={handleSaveRules}
-            disabled={saving}
-            className="inline-flex items-center px-4 py-2 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-xl shadow-md transition-all disabled:opacity-50"
+            disabled={saving || isLocked}
+            className="inline-flex items-center px-4 py-2 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-xl shadow-md transition-all disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {saving ? (
               <>
                 <Loader2 className="w-4 h-4 mr-1.5 animate-spin" />
                 Saving ({Math.round(progress * 100)}%)...
+              </>
+            ) : isLocked ? (
+              <>
+                <Lock className="w-4 h-4 mr-1.5" />
+                Rules Locked
               </>
             ) : (
               <>
