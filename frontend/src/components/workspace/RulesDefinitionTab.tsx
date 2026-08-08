@@ -181,7 +181,7 @@ export const RulesDefinitionTab: React.FC = () => {
     fetchMappingsForProject(currentProject).then((mappings) => {
       const targetFields = mappings
         .filter((m) => m.mapping_type === 'Based on Fixed Rules')
-        .map((m) => m.field_name);
+        .map((m) => getTechnicalFieldName(m.field_name, selectedMaster));
 
       const uniqueFields = Array.from(new Set(targetFields));
       setRuleFields(uniqueFields);
