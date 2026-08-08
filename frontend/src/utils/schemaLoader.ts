@@ -24,3 +24,50 @@ export function getLegacyViewInfo(rawView: string): [string, string] {
   }
   return [rawView, rawView];
 }
+
+/**
+ * Resolves the human-readable description for an SAP field key across all views of a master schema.
+ * e.g. "BKLAS" -> "Valuation Class", "BWKEY" -> "Valuation Area", "LGORT" -> "Storage Location", "PRODUCT" -> "Product Number"
+ */
+export function getFieldDescription(fieldKeyOrDesc: string, masterType: MasterType): string {
+  if (!fieldKeyOrDesc) return '';
+  const schema = loadMasterSchema(masterType);
+  const cleanKey = fieldKeyOrDesc.trim().toLowerCase();
+
+  for (const viewName of Object.keys(schema)) {
+    const fields = schema[viewName] || [];
+    for (const f of fields) {
+      if (f.field_name && f.field_name.trim().toLowerCase() === cleanKey) {
+        return f.description || f.field_name;
+      }
+      if (f.description && f.description.trim().toLowerCase() === cleanKey) {
+        return f.description;
+      }
+    }
+  }
+  return fieldKeyOrDesc;
+}
+
+/**
+ * Resolves the technical SAP field_name for a human description or field key across all views of a master schema.
+ * e.g. "Valuation Class" -> "BKLAS", "Storage Location" -> "LGORT", "Product Number" -> "PRODUCT"
+ */
+export function getTechnicalFieldName(descOrFieldKey: string, masterType: MasterType): string {
+  if (!descOrFieldKey) return '';
+  const schema = loadMasterSchema(masterType);
+  const cleanDesc = descOrFieldKey.trim().toLowerCase();
+
+  for (const viewName of Object.keys(schema)) {
+    const fields = schema[viewName] || [];
+    for (const f of fields) {
+      if (f.description && f.description.trim().toLowerCase() === cleanDesc) {
+        return f.field_name || f.description;
+      }
+      if (f.field_name && f.field_name.trim().toLowerCase() === cleanDesc) {
+        return f.field_name;
+      }
+    }
+  }
+  return descOrFieldKey;
+}
+

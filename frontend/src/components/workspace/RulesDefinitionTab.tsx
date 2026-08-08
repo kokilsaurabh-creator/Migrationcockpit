@@ -6,6 +6,7 @@ import { fetchMappingsForProject } from '../../services/mappingService';
 import { isProjectLocked } from '../../services/projectService';
 import { FixedRuleRecord } from '../../types';
 import { MASTER_CONFIGS } from '../../utils/constants';
+import { getFieldDescription, getTechnicalFieldName } from '../../utils/schemaLoader';
 import { Toast } from '../common/Toast';
 import * as XLSX from 'xlsx';
 import {
@@ -311,10 +312,18 @@ export const RulesDefinitionTab: React.FC = () => {
       ruleRecords.length > 0
         ? ruleRecords.map((r) => {
             const row: Record<string, string> = {};
-            allColumns.forEach((col) => (row[col] = String(r[col] || '')));
+            allColumns.forEach((col) => {
+              const label = getFieldDescription(col, selectedMaster);
+              row[label] = String(r[col] || r[label] || '');
+            });
             return row;
           })
-        : [allColumns.reduce((acc, col) => ({ ...acc, [col]: '' }), {})];
+        : [
+            allColumns.reduce((acc, col) => {
+              const label = getFieldDescription(col, selectedMaster);
+              return { ...acc, [label]: '' };
+            }, {})
+          ];
 
     const worksheet = XLSX.utils.json_to_sheet(exportData);
     const workbook = XLSX.utils.book_new();
@@ -336,11 +345,21 @@ export const RulesDefinitionTab: React.FC = () => {
         const ws = workbook.Sheets[wsname];
         const data = XLSX.utils.sheet_to_json<Record<string, any>>(ws, { defval: '' });
 
-        const importedRules: FixedRuleRecord[] = data.map((row) => ({
-          ...row,
-          project_name: currentProject || '',
-          master_type: selectedMaster
-        }));
+        const importedRules: FixedRuleRecord[] = data.map((row) => {
+          const ruleRec: FixedRuleRecord = {
+            project_name: currentProject || '',
+            master_type: selectedMaster
+          };
+
+          Object.keys(row).forEach((header) => {
+            const techKey = getTechnicalFieldName(header, selectedMaster);
+            const val = String(row[header] || '').trim();
+            ruleRec[techKey] = val;
+            ruleRec[header] = val;
+          });
+
+          return ruleRec;
+        });
 
         setRuleRecords(importedRules);
         setCurrentPage(1);
@@ -477,7 +496,7 @@ export const RulesDefinitionTab: React.FC = () => {
           {ruleKeys.map((key) => (
             <MultiSelectFilter
               key={key}
-              label={key}
+              label={getFieldDescription(key, selectedMaster)}
               options={uniqueKeyOptions[key] || []}
               selected={multiFilters[key] || []}
               onChange={(selected) => handleMultiFilterChange(key, selected)}
@@ -550,13 +569,13 @@ export const RulesDefinitionTab: React.FC = () => {
               <tr className="bg-slate-100/90 text-slate-700 uppercase text-[11px] font-bold tracking-wider border-b border-slate-200">
                 <th className="py-3 px-3 w-12 text-center">#</th>
                 {ruleKeys.map((key) => (
-                  <th key={key} className="py-3 px-3 bg-blue-50/70 text-blue-900 border-r border-blue-100">
-                    🔑 {key}
+                  <th key={key} className="py-3 px-3 bg-blue-50/70 text-blue-900 border-r border-blue-100" title={key}>
+                    🔑 {getFieldDescription(key, selectedMaster)}
                   </th>
                 ))}
                 {ruleFields.map((f) => (
-                  <th key={f} className="py-3 px-3 bg-emerald-50/70 text-emerald-900 border-r border-emerald-100">
-                    🎯 {f}
+                  <th key={f} className="py-3 px-3 bg-emerald-50/70 text-emerald-900 border-r border-emerald-100" title={`SAP Field: ${f}`}>
+                    🎯 {getFieldDescription(f, selectedMaster)}
                   </th>
                 ))}
                 <th className="py-3 px-3 w-16 text-center">Action</th>
@@ -571,7 +590,7 @@ export const RulesDefinitionTab: React.FC = () => {
                   <th key={col} className="p-1">
                     <input
                       type="text"
-                      placeholder={`Filter ${col} (e.g. A, B)...`}
+                      placeholder={`Filter ${getFieldDescription(col, selectedMaster)}...`}
                       value={columnFilters[col] || ''}
                       onChange={(e) => handleColumnFilterChange(col, e.target.value)}
                       className={`w-full px-2 py-1 border rounded text-[11px] font-normal focus:outline-none focus:ring-1 focus:ring-blue-500 ${
