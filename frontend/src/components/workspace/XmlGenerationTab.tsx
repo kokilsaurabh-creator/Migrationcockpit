@@ -1,7 +1,7 @@
 // frontend/src/components/workspace/XmlGenerationTab.tsx
 import React, { useEffect, useState } from 'react';
 import { useProject } from '../../context/ProjectContext';
-import { loadMasterSchema } from '../../utils/schemaLoader';
+import { loadMasterSchema, getFieldDescription } from '../../utils/schemaLoader';
 import { fetchMappingsForProject } from '../../services/mappingService';
 import { fetchProjectRules } from '../../services/rulesService';
 import { generateXmlPayload, expandRawRecords } from '../../services/xmlGeneratorService';
@@ -59,11 +59,11 @@ export const XmlGenerationTab: React.FC = () => {
       mappings.forEach((m) => {
         if (
           m.mapping_type === 'Based on User Input' &&
-          validMasterFields.has(m.field_name) &&
-          !config.baseColumns.includes(m.field_name)
+          validMasterFields.has(m.field_name)
         ) {
-          if (!userMappedFields.includes(m.field_name)) {
-            userMappedFields.push(m.field_name);
+          const desc = getFieldDescription(m.field_name, selectedMaster);
+          if (!config.baseColumns.includes(desc) && !userMappedFields.includes(desc)) {
+            userMappedFields.push(desc);
           }
         }
       });
