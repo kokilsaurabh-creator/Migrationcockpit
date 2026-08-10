@@ -41,60 +41,103 @@ def run_material_duplicate_check(
 ) -> List[MatchedSAPRecord]:
     """
     Checks for duplicate Material records in SAP S/4HANA API_PRODUCT_SRV.
-    Queries A_ProductDescription using substring matching & difflib fuzzy scoring.
+    Queries A_ProductDescription using exact Product code filter, substring matching & difflib fuzzy scoring.
     """
     matches: List[MatchedSAPRecord] = []
     
-    # Extract material description & material code from payload
-    mat_desc = str(payload.get("ProductDescription") or payload.get("MAKTX") or payload.get("Material_Description") or "").strip()
-    mat_code = str(payload.get("Product") or payload.get("MATNR") or payload.get("Material_Code") or "").strip()
+    # Extract material code & description supporting all header naming variations
+    mat_code = str(
+        payload.get("Product") or
+        payload.get("MATNR") or
+        payload.get("Product Number") or
+        payload.get("Product_Number") or
+        payload.get("Material_Code") or
+        payload.get("Material Code") or
+        payload.get("Material") or
+        ""
+    ).strip()
+
+    mat_desc = str(
+        payload.get("ProductDescription") or
+        payload.get("Product Description") or
+        payload.get("MAKTX") or
+        payload.get("Material_Description") or
+        payload.get("Material Description") or
+        payload.get("Description") or
+        ""
+    ).strip()
 
     if not mat_desc and not mat_code:
         return matches
 
     user = project_config.material_comm_user
-    password = decrypt_password(project_config.material_encrypted_password)
+    password = decrypt_password(project_config.material_encrypted_password) if project_config.material_encrypted_password else ""
     base_url = project_config.base_url.rstrip("/") if project_config.base_url else ""
 
     # Live SAP OData Query if configured
     if base_url and user:
-        target_url = f"{base_url}{MATERIAL_ODATA_PATH}/A_ProductDescription"
-        first_word = mat_desc.split()[0] if mat_desc else ""
-        filter_str = f"substringof('{first_word}', ProductDescription)" if first_word else ""
-
-        odata_res = query_sap_odata(
-            target_url,
-            user,
-            password,
-            params={"$filter": filter_str, "$top": "20", "$format": "json"} if filter_str else {"$top": "20", "$format": "json"}
-        )
-
-        if odata_res["success"] and odata_res["data"]:
-            for item in odata_res["data"]:
-                sap_mat_id = item.get("Product", "")
-                sap_mat_desc = item.get("ProductDescription", "")
-                score = calculate_similarity(mat_desc, sap_mat_desc)
-
-                if sap_mat_id == mat_code:
+        # Tier 1 Hard Match: Exact Product Number / Material Code in SAP
+        if mat_code:
+            target_url = f"{base_url}{MATERIAL_ODATA_PATH}/A_ProductDescription"
+            code_res = query_sap_odata(
+                target_url, user, password,
+                params={"$filter": f"Product eq '{mat_code}'", "$top": "5", "$format": "json"}
+            )
+            if code_res["success"] and code_res["data"]:
+                for item in code_res["data"]:
+                    sap_mat_id = item.get("Product", mat_code)
+                    sap_mat_desc = item.get("ProductDescription", mat_desc)
                     matches.append(MatchedSAPRecord(
                         sap_id=sap_mat_id,
-                        record_name=sap_mat_desc,
+                        record_name=sap_mat_desc or f"Product {sap_mat_id}",
                         match_tier="HARD",
-                        match_reason=f"Exact Material Code Match ({sap_mat_id})",
+                        match_reason=f"Tier 1 Hard Match: Exact Product Number Found in SAP ({sap_mat_id})",
                         similarity_score=1.0,
                         details=item
                     ))
-                elif score >= 0.80:
-                    tier = "HARD" if score >= 0.95 else "SOFT"
-                    matches.append(MatchedSAPRecord(
-                        sap_id=sap_mat_id,
-                        record_name=sap_mat_desc,
-                        match_tier=tier,
-                        match_reason=f"Material Description Similarity ({int(score * 100)}%)",
-                        similarity_score=score,
-                        details=item
-                    ))
-            return matches
+                if matches:
+                    return matches
+
+        # Tier 2 Match: Material Description substring / fuzzy search in SAP
+        if mat_desc:
+            target_url = f"{base_url}{MATERIAL_ODATA_PATH}/A_ProductDescription"
+            first_word = mat_desc.split()[0] if mat_desc else ""
+            filter_str = f"substringof('{first_word}', ProductDescription)" if first_word else ""
+
+            odata_res = query_sap_odata(
+                target_url,
+                user,
+                password,
+                params={"$filter": filter_str, "$top": "20", "$format": "json"} if filter_str else {"$top": "20", "$format": "json"}
+            )
+
+            if odata_res["success"] and odata_res["data"]:
+                for item in odata_res["data"]:
+                    sap_mat_id = item.get("Product", "")
+                    sap_mat_desc = item.get("ProductDescription", "")
+                    score = calculate_similarity(mat_desc, sap_mat_desc)
+
+                    if mat_code and sap_mat_id.upper() == mat_code.upper():
+                        matches.append(MatchedSAPRecord(
+                            sap_id=sap_mat_id,
+                            record_name=sap_mat_desc,
+                            match_tier="HARD",
+                            match_reason=f"Tier 1 Hard Match: Exact Material Code Match ({sap_mat_id})",
+                            similarity_score=1.0,
+                            details=item
+                        ))
+                    elif score >= 0.80:
+                        tier = "HARD" if score >= 0.95 else "SOFT"
+                        matches.append(MatchedSAPRecord(
+                            sap_id=sap_mat_id,
+                            record_name=sap_mat_desc,
+                            match_tier=tier,
+                            match_reason=f"Material Description Similarity ({int(score * 100)}%)",
+                            similarity_score=score,
+                            details=item
+                        ))
+                if matches:
+                    return matches
 
     # Demo / Fallback Mock Engine (Ensures UI & duplicate check functionality works in test environments)
     mock_sap_materials = [

@@ -128,17 +128,36 @@ export const XmlGenerationTab: React.FC = () => {
     setToast(null);
 
     try {
-      const firstRecord = uploadedRecords[0];
-      const result = await checkMasterDataDuplicates(
-        currentProject || 'DEV_01',
-        selectedMaster,
-        firstRecord
-      );
+      const allMatches: any[] = [];
+      let highestRiskTier: 'NONE' | 'SOFT' | 'HARD' = 'NONE';
 
-      setDuplicateResult(result);
+      for (const rec of uploadedRecords) {
+        const result = await checkMasterDataDuplicates(
+          currentProject || 'LANDMARK_QA',
+          selectedMaster,
+          rec
+        );
+
+        if (result.has_duplicates && result.matches.length > 0) {
+          allMatches.push(...result.matches);
+          if (result.highest_risk_tier === 'HARD') highestRiskTier = 'HARD';
+          else if (result.highest_risk_tier === 'SOFT' && highestRiskTier !== 'HARD') highestRiskTier = 'SOFT';
+        }
+      }
+
+      const aggregatedResult: DuplicateCheckResult = {
+        has_duplicates: allMatches.length > 0,
+        highest_risk_tier: highestRiskTier,
+        summary: allMatches.length > 0
+          ? `Found ${allMatches.length} duplicate match(es) in SAP S/4HANA across ${uploadedRecords.length} record(s).`
+          : '✅ SAP Duplicate Check Passed: No duplicates found in SAP S/4HANA!',
+        matches: allMatches
+      };
+
+      setDuplicateResult(aggregatedResult);
       setDuplicateChecking(false);
 
-      if (result.has_duplicates) {
+      if (aggregatedResult.has_duplicates) {
         setShowDuplicateModal(true);
       } else {
         setToast({
