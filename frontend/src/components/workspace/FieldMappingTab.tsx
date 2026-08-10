@@ -84,7 +84,7 @@ export const FieldMappingTab: React.FC = () => {
   useEffect(() => {
     if (!currentProject) return;
     setLoading(true);
-    fetchMappingsForProject(currentProject).then((mappings) => {
+    fetchMappingsForProject(currentProject, selectedMaster).then((mappings) => {
       setSavedMappings(mappings);
 
       // Populate current form state for selected view matching either raw or normalized view name
@@ -93,7 +93,16 @@ export const FieldMappingTab: React.FC = () => {
 
       const currentViewFields = schema[selectedView] || [];
 
-      mappings.forEach((m) => {
+      // Sort mappings so exact technical key rows are processed after legacy description rows
+      const sortedMappings = [...mappings].sort((a, b) => {
+        const isTechA = currentViewFields.some((f) => f.field_name.toLowerCase() === a.field_name.trim().toLowerCase());
+        const isTechB = currentViewFields.some((f) => f.field_name.toLowerCase() === b.field_name.trim().toLowerCase());
+        if (!isTechA && isTechB) return -1;
+        if (isTechA && !isTechB) return 1;
+        return 0;
+      });
+
+      sortedMappings.forEach((m) => {
         const [cleanMView] = getLegacyViewInfo(m.view_name);
         if (m.view_name === selectedView || cleanMView === cleanSelectedView) {
           if (m.field_name) {
@@ -273,19 +282,22 @@ export const FieldMappingTab: React.FC = () => {
       };
     });
 
-    const successCount = await saveMappingsBatch(currentProject, selectedView, itemsToSave);
+    const result = await saveMappingsBatch(currentProject, selectedView, itemsToSave, selectedMaster);
 
     setSaving(false);
-    if (successCount > 0) {
+    if (result.count > 0) {
       setToast({
         type: 'success',
-        msg: `Successfully saved & updated ${successCount} modified field mapping(s) for ${selectedView}!`
+        msg: `Successfully saved & updated ${result.count} modified field mapping(s) for ${selectedView}!`
       });
       setDirtyFields(new Set());
       // Refresh saved mappings from DB
-      fetchMappingsForProject(currentProject).then(setSavedMappings);
+      fetchMappingsForProject(currentProject, selectedMaster).then(setSavedMappings);
     } else {
-      setToast({ type: 'error', msg: 'Failed to save field mappings.' });
+      setToast({
+        type: 'error',
+        msg: result.error ? `Failed to save field mappings: ${result.error}` : 'Failed to save field mappings.'
+      });
     }
   };
 

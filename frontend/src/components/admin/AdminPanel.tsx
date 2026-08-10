@@ -6,10 +6,11 @@ import { UserAccountsTable } from './UserAccountsTable';
 import { PermissionManager } from './PermissionManager';
 import { SAPTenantAdmin } from './SAPTenantAdmin';
 import { ProjectManager } from './ProjectManager';
-import { Shield, UserPlus, Users, Key, Server, FolderCog } from 'lucide-react';
+import { PlantStorageLocationAdmin } from './PlantStorageLocationAdmin';
+import { Shield, UserPlus, Users, Key, Server, FolderCog, Building2 } from 'lucide-react';
 
 export const AdminPanel: React.FC = () => {
-  const [activeTab, setActiveTab] = useState<'accounts' | 'create' | 'permissions' | 'sap_tenants' | 'projects'>('accounts');
+  const [activeTab, setActiveTab] = useState<'accounts' | 'create' | 'permissions' | 'sap_tenants' | 'projects' | 'plant_sloc'>('accounts');
 
   return (
     <div className="min-h-screen bg-slate-100 flex flex-col font-sans">
@@ -25,7 +26,7 @@ export const AdminPanel: React.FC = () => {
             <div>
               <h1 className="text-xl font-extrabold tracking-tight">Admin Security & SAP Tenant Hub</h1>
               <p className="text-xs text-slate-400 font-medium mt-0.5">
-                Manage accounts, project RBAC permissions, SAP S/4HANA multi-credential tenant connections, and project lifecycle governance.
+                Manage accounts, project RBAC permissions, SAP S/4HANA multi-credential tenant connections, project governance, and Plant-Storage Location mappings.
               </p>
             </div>
           </div>
@@ -92,6 +93,18 @@ export const AdminPanel: React.FC = () => {
             <FolderCog className="w-4 h-4 mr-2 text-indigo-400" />
             Project Governance
           </button>
+
+          <button
+            onClick={() => setActiveTab('plant_sloc')}
+            className={`inline-flex items-center px-4 py-2 rounded-lg text-xs font-bold transition-all ${
+              activeTab === 'plant_sloc'
+                ? 'bg-slate-900 text-white shadow-sm'
+                : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+            }`}
+          >
+            <Building2 className="w-4 h-4 mr-2 text-emerald-400" />
+            Plant-SLoc Mapping
+          </button>
         </div>
 
         {/* Tab Content */}
@@ -101,6 +114,7 @@ export const AdminPanel: React.FC = () => {
           {activeTab === 'permissions' && <PermissionManager />}
           {activeTab === 'sap_tenants' && <SAPTenantAdmin />}
           {activeTab === 'projects' && <ProjectManager />}
+          {activeTab === 'plant_sloc' && <PlantStorageLocationAdmin />}
         </div>
       </main>
     </div>

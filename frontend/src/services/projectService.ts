@@ -2,6 +2,17 @@
 import { supabase } from './supabaseClient';
 import { MasterType, MigrationProject, UserPermission } from '../types';
 
+export async function fetchProjects(): Promise<MigrationProject[]> {
+  try {
+    const { data, error } = await supabase.from('migration_projects').select('*');
+    if (error || !data) return [];
+    return data as MigrationProject[];
+  } catch (err) {
+    console.error('Error fetching projects:', err);
+    return [];
+  }
+}
+
 export async function fetchProjectsAndModulesForUser(userId: string, role: string): Promise<{
   projects: string[];
   allowedMastersMap: Record<string, MasterType[]>;

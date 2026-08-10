@@ -190,7 +190,7 @@ export const RulesDefinitionTab: React.FC = () => {
     setLoading(true);
 
     // Fetch mappings configured as 'Based on Fixed Rules' to get target rule fields
-    fetchMappingsForProject(currentProject).then((mappings) => {
+    fetchMappingsForProject(currentProject, selectedMaster).then((mappings) => {
       const targetFields = mappings
         .filter((m) => m.mapping_type === 'Based on Fixed Rules')
         .map((m) => getTechnicalFieldName(m.field_name, selectedMaster));

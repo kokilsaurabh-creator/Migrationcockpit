@@ -1,9 +1,12 @@
 // frontend/src/services/mappingService.ts
 import { supabase } from './supabaseClient';
-import { FieldMapping, MappingType } from '../types';
-import { getLegacyViewInfo } from '../utils/schemaLoader';
+import { FieldMapping, MappingType, MasterType } from '../types';
+import { getLegacyViewInfo, getTechnicalFieldName } from '../utils/schemaLoader';
 
-export async function fetchMappingsForProject(projectName: string): Promise<FieldMapping[]> {
+export async function fetchMappingsForProject(
+  projectName: string,
+  masterType: MasterType = 'Material Master'
+): Promise<FieldMapping[]> {
   try {
     const { data, error } = await supabase
       .from('field_mappings')
@@ -11,7 +14,17 @@ export async function fetchMappingsForProject(projectName: string): Promise<Fiel
       .eq('project_name', projectName);
 
     if (error || !data) return [];
-    return data as FieldMapping[];
+
+    // Normalize field_name to technical SAP field name for all returned items
+    const normalizedData = data.map((item) => {
+      const techKey = getTechnicalFieldName(item.field_name, masterType);
+      return {
+        ...item,
+        field_name: techKey || item.field_name
+      };
+    });
+
+    return normalizedData as FieldMapping[];
   } catch (err) {
     console.error('Error fetching mappings:', err);
     return [];
@@ -30,9 +43,10 @@ export interface FieldMappingItem {
 export async function saveMappingsBatch(
   projectName: string,
   viewName: string,
-  items: FieldMappingItem[]
-): Promise<number> {
-  if (!projectName || !viewName || items.length === 0) return 0;
+  items: FieldMappingItem[],
+  masterType: MasterType = 'Material Master'
+): Promise<{ count: number; error?: string }> {
+  if (!projectName || !viewName || items.length === 0) return { count: 0 };
   try {
     const [cleanViewName] = getLegacyViewInfo(viewName);
 
@@ -43,38 +57,43 @@ export async function saveMappingsBatch(
       .eq('project_name', projectName);
 
     let savedCount = 0;
+    let lastError: string | undefined = undefined;
 
     for (const item of items) {
       const valToSave = item.fixedValue || item.sourceField || '';
-      const techKey = item.fieldName.trim();
+      const techKey = (getTechnicalFieldName(item.fieldName, masterType) || item.fieldName).trim();
       const desc = (item.fieldDescription || '').trim();
 
-      // Find matching rows for this view + field (either technical key or description)
-      const matchingRows = (existingRows || []).filter((m) => {
-        const [cleanMView] = getLegacyViewInfo(m.view_name);
-        const isViewMatch = m.view_name === viewName || cleanMView === cleanViewName;
+      // Find all matching existing rows for this project (by technical key or description string)
+      const allFieldMatches = (existingRows || []).filter((m) => {
         const mKey = m.field_name.trim().toLowerCase();
-        const isFieldMatch =
-          mKey === techKey.toLowerCase() ||
-          (desc && mKey === desc.toLowerCase());
-        return isViewMatch && isFieldMatch;
+        return mKey === techKey.toLowerCase() || (desc && mKey === desc.toLowerCase());
       });
 
-      const mainExisting = matchingRows[0];
+      // Prefer exact techKey match or view match as main existing record
+      let mainExisting: any = allFieldMatches.find((m) => {
+        const [cleanMView] = getLegacyViewInfo(m.view_name);
+        const isViewMatch = m.view_name === viewName || cleanMView === cleanViewName;
+        return isViewMatch && m.field_name.trim().toLowerCase() === techKey.toLowerCase();
+      }) || allFieldMatches[0];
 
-      // Delete any duplicate extra rows from Supabase
-      if (matchingRows.length > 1) {
-        const extraIds = matchingRows.slice(1).map((r) => r.id);
-        await supabase.from('field_mappings').delete().in('id', extraIds);
+      // Delete any duplicate extra rows (e.g. legacy description rows) from Supabase
+      if (allFieldMatches.length > 1) {
+        const extraIds = allFieldMatches
+          .filter((r) => r.id !== mainExisting?.id)
+          .map((r) => r.id);
+        if (extraIds.length > 0) {
+          await supabase.from('field_mappings').delete().in('id', extraIds);
+        }
       }
 
       const payload = {
         project_name: projectName,
-        sap_structure: mainExisting?.sap_structure || 'UNKNOWN',
+        sap_structure: mainExisting?.sap_structure || cleanViewName || viewName,
         view_name: mainExisting?.view_name || viewName,
         field_name: techKey,
         mapping_type: item.mappingType,
-        fixed_value: valToSave,
+        fixed_value: item.mappingType === 'Fixed Values' ? (item.fixedValue || '') : item.mappingType === 'Based on User Input' ? (item.sourceField || item.fixedValue || '') : '',
         is_mandatory: !!item.isMandatory
       };
 
@@ -83,19 +102,37 @@ export async function saveMappingsBatch(
           .from('field_mappings')
           .update(payload)
           .eq('id', mainExisting.id);
-        if (!error) savedCount++;
+        if (!error) {
+          savedCount++;
+        } else {
+          console.error('Supabase update error, falling back to upsert:', error);
+          const { error: upsertErr } = await supabase
+            .from('field_mappings')
+            .upsert([payload], { onConflict: 'project_name,sap_structure,field_name' });
+          if (!upsertErr) {
+            savedCount++;
+          } else {
+            console.error('Supabase upsert error:', upsertErr);
+            lastError = upsertErr.message || JSON.stringify(upsertErr);
+          }
+        }
       } else {
         const { error } = await supabase
           .from('field_mappings')
-          .insert([payload]);
-        if (!error) savedCount++;
+          .upsert([payload], { onConflict: 'project_name,sap_structure,field_name' });
+        if (!error) {
+          savedCount++;
+        } else {
+          console.error('Supabase upsert error:', error);
+          lastError = error.message || JSON.stringify(error);
+        }
       }
     }
 
-    return savedCount;
-  } catch (err) {
+    return { count: savedCount, error: lastError };
+  } catch (err: any) {
     console.error('Error in saveMappingsBatch:', err);
-    return 0;
+    return { count: 0, error: err?.message || String(err) };
   }
 }
 
@@ -108,7 +145,7 @@ export async function saveMapping(
   fixedValue: string,
   isMandatory: boolean
 ): Promise<boolean> {
-  const count = await saveMappingsBatch(projectName, viewName, [
+  const result = await saveMappingsBatch(projectName, viewName, [
     {
       fieldName,
       mappingType,
@@ -117,5 +154,5 @@ export async function saveMapping(
       isMandatory
     }
   ]);
-  return count > 0;
+  return result.count > 0;
 }

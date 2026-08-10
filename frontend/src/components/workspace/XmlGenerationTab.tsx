@@ -4,6 +4,7 @@ import { useProject } from '../../context/ProjectContext';
 import { loadMasterSchema, getFieldDescription } from '../../utils/schemaLoader';
 import { fetchMappingsForProject } from '../../services/mappingService';
 import { fetchProjectRules } from '../../services/rulesService';
+import { fetchPlantSLocMappings } from '../../services/plantStorageLocationService';
 import { generateXmlPayload, expandRawRecords } from '../../services/xmlGeneratorService';
 import { checkMasterDataDuplicates } from '../../services/duplicateCheckService';
 import { MASTER_CONFIGS } from '../../utils/constants';
@@ -162,12 +163,14 @@ export const XmlGenerationTab: React.FC = () => {
     setToast(null);
 
     try {
+      const plantSLocMappings = await fetchPlantSLocMappings(currentProject || '');
       const xmlResult = await generateXmlPayload(
         selectedMaster,
         schema,
         allMappings,
         savedRules,
-        uploadedRecords
+        uploadedRecords,
+        plantSLocMappings
       );
 
       setGeneratedXml(xmlResult);

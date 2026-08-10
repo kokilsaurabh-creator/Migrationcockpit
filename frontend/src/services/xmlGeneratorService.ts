@@ -1,5 +1,6 @@
 // frontend/src/services/xmlGeneratorService.ts
 import type { FieldMapping, FixedRuleRecord, MasterSchema, MasterType } from '../types';
+import type { PlantSLocMapping } from './plantStorageLocationService';
 import { MASTER_CONFIGS } from '../utils/constants';
 import { applySmartTextWrappingToRecord } from '../utils/textWrapper';
 
@@ -105,7 +106,8 @@ export async function generateXmlPayload(
   schema: MasterSchema,
   allMappings: FieldMapping[],
   savedRules: FixedRuleRecord[],
-  uploadedRecords: Record<string, any>[]
+  uploadedRecords: Record<string, any>[],
+  plantSLocMappings: PlantSLocMapping[] = []
 ): Promise<string> {
   const config = MASTER_CONFIGS[masterType];
   const templateFileName = config.xmlTemplateFile;
@@ -252,6 +254,21 @@ export async function generateXmlPayload(
         resolvedValue = normalizeVal(material[fieldName]) || normalizeVal(material[descName]);
       }
 
+      // Automatic Valuation Area (BWKEY) = Plant (WERKS) rule for Material Master
+      if (
+        masterType === 'Material Master' &&
+        (fieldName === 'BWKEY' || fieldName === 'Valuation Area' || descName === 'Valuation Area') &&
+        !resolvedValue
+      ) {
+        resolvedValue =
+          normalizeVal(material['WERKS']) ||
+          normalizeVal(material['Plant']) ||
+          normalizeVal(rowDict['WERKS']) ||
+          normalizeVal(rowDict['Plant']) ||
+          normalizeVal(material['BWKEY']) ||
+          normalizeVal(material['Valuation Area']);
+      }
+
       // Assign to both technical field_name AND description so both lookups succeed
       if (resolvedValue !== '') {
         rowDict[fieldName] = resolvedValue;
@@ -266,6 +283,59 @@ export async function generateXmlPayload(
   // 4. Apply smart text wrapping on Name and Street fields across all sheets & rows
   for (const sheetName of Object.keys(finalSapData)) {
     finalSapData[sheetName] = finalSapData[sheetName].map((row) => applySmartTextWrappingToRecord(row));
+  }
+
+  // 4.5. Wildcard '*' Storage Location Expansion for Plant Data / Store Location sheet
+  if (masterType === 'Material Master' && plantSLocMappings.length > 0) {
+    for (const sheetName of Object.keys(finalSapData)) {
+      const isSLocSheet =
+        sheetName.toLowerCase().includes('store location') ||
+        sheetName.toLowerCase().includes('storage location');
+
+      if (!isSLocSheet) continue;
+
+      const rowsList = finalSapData[sheetName];
+      const expandedSLocRows: Record<string, string>[] = [];
+
+      rowsList.forEach((row) => {
+        const slocVal = (row['LGORT'] || row['Storage Location'] || '').trim();
+        const plantVal = (row['WERKS'] || row['Plant'] || row['Valuation Area'] || '').trim().toUpperCase();
+
+        if ((slocVal === '*' || slocVal === '') && plantVal) {
+          const matchedSLocs = plantSLocMappings
+            .filter((m: PlantSLocMapping) => m.plant_code.trim().toUpperCase() === plantVal)
+            .map((m: PlantSLocMapping) => m.storage_location_code.trim().toUpperCase());
+
+          if (matchedSLocs.length > 0) {
+            matchedSLocs.forEach((slocCode: string) => {
+              const newRow = { ...row };
+              newRow['LGORT'] = slocCode;
+              newRow['Storage Location'] = slocCode;
+              expandedSLocRows.push(newRow);
+            });
+          } else {
+            expandedSLocRows.push(row);
+          }
+        } else {
+          expandedSLocRows.push(row);
+        }
+      });
+
+      finalSapData[sheetName] = expandedSLocRows;
+    }
+  }
+
+  // 4.6. Ensure Valuation Area (BWKEY) is automatically set to Plant (WERKS) for Material Master
+  if (masterType === 'Material Master') {
+    for (const sheetName of Object.keys(finalSapData)) {
+      finalSapData[sheetName].forEach((row) => {
+        const plantVal = (row['WERKS'] || row['Plant'] || row['Valuation Area'] || row['BWKEY'] || '').trim();
+        if (plantVal) {
+          if (!row['BWKEY']) row['BWKEY'] = plantVal;
+          if (!row['Valuation Area']) row['Valuation Area'] = plantVal;
+        }
+      });
+    }
   }
 
   // 5. Process each sheet and inject XML rows with deduplication
