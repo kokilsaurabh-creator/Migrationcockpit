@@ -3,7 +3,7 @@ import React, { useEffect, useState } from 'react';
 import { useProject } from '../../context/ProjectContext';
 import { fetchProjectRules, saveProjectRules } from '../../services/rulesService';
 import { fetchMappingsForProject } from '../../services/mappingService';
-import { isProjectLocked } from '../../services/projectService';
+import { isProjectLocked, fetchProjectMasterLockStatuses } from '../../services/projectService';
 import { FixedRuleRecord } from '../../types';
 import { MASTER_CONFIGS } from '../../utils/constants';
 import { getFieldDescription, getTechnicalFieldName } from '../../utils/schemaLoader';
@@ -157,12 +157,19 @@ export const RulesDefinitionTab: React.FC = () => {
   );
 
   useEffect(() => {
-    const updateLock = () => {
-      setIsLocked(isProjectLocked(currentProject || '', selectedMaster));
+    let isMounted = true;
+    const updateLock = async () => {
+      await fetchProjectMasterLockStatuses();
+      if (isMounted) {
+        setIsLocked(isProjectLocked(currentProject || '', selectedMaster));
+      }
     };
     updateLock();
     window.addEventListener('project_lock_updated', updateLock);
-    return () => window.removeEventListener('project_lock_updated', updateLock);
+    return () => {
+      isMounted = false;
+      window.removeEventListener('project_lock_updated', updateLock);
+    };
   }, [currentProject, selectedMaster]);
 
   const config = MASTER_CONFIGS[selectedMaster];

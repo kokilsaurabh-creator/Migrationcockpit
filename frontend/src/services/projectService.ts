@@ -150,6 +150,50 @@ export function isProjectLocked(projectName: string, masterType?: MasterType): b
 export async function fetchProjectMasterLockStatuses(): Promise<Record<string, Record<string, boolean>>> {
   const result: Record<string, Record<string, boolean>> = {};
   try {
+    // 1. Fetch from migration_projects table in Supabase
+    const { data: projData } = await supabase
+      .from('migration_projects')
+      .select('project_name, master_type, is_locked');
+
+    if (projData && projData.length > 0) {
+      projData.forEach((row: any) => {
+        const pName = (row.project_name || '').trim();
+        const mType = (row.master_type || '').trim();
+        const isLocked = Boolean(row.is_locked);
+        if (pName && mType) {
+          if (!result[pName]) result[pName] = {};
+          result[pName][mType] = isLocked;
+          try {
+            localStorage.setItem(`project_lock_${pName}__${mType}`, isLocked ? 'true' : 'false');
+          } catch (e) {}
+        }
+      });
+    }
+
+    // 2. Also fetch from dedicated project_locks table if present
+    try {
+      const { data: lockData } = await supabase.from('project_locks').select('*');
+      if (lockData && lockData.length > 0) {
+        lockData.forEach((row: any) => {
+          const pName = (row.project_name || '').trim();
+          const mType = (row.master_type || '').trim();
+          const isLocked = Boolean(row.is_locked);
+          if (pName && mType) {
+            if (!result[pName]) result[pName] = {};
+            result[pName][mType] = isLocked;
+            try {
+              localStorage.setItem(`project_lock_${pName}__${mType}`, isLocked ? 'true' : 'false');
+            } catch (e) {}
+          }
+        });
+      }
+    } catch (e) {}
+  } catch (e) {
+    console.warn('Error fetching lock statuses from Supabase:', e);
+  }
+
+  // Fallback / merge with local storage cache
+  try {
     for (let i = 0; i < localStorage.length; i++) {
       const key = localStorage.key(i);
       if (key && key.startsWith('project_lock_')) {
@@ -157,9 +201,10 @@ export async function fetchProjectMasterLockStatuses(): Promise<Record<string, R
         if (raw.includes('__')) {
           const [pName, mType] = raw.split('__');
           if (!result[pName]) result[pName] = {};
-          result[pName][mType] = localStorage.getItem(key) === 'true';
+          if (result[pName][mType] === undefined) {
+            result[pName][mType] = localStorage.getItem(key) === 'true';
+          }
         } else {
-          // Global lock fallback
           const isLocked = localStorage.getItem(key) === 'true';
           if (!result[raw]) result[raw] = {};
           ['Material Master', 'Vendor Master', 'Customer Master'].forEach((m) => {
@@ -171,6 +216,7 @@ export async function fetchProjectMasterLockStatuses(): Promise<Record<string, R
       }
     }
   } catch (e) {}
+
   return result;
 }
 
@@ -194,14 +240,34 @@ export async function setProjectMasterLockStatus(
   try {
     const pName = projectName.trim();
     const mType = masterType.trim();
+
+    // 1. Cache in local storage
     localStorage.setItem(`project_lock_${pName}__${mType}`, locked ? 'true' : 'false');
+
+    // 2. Persist to migration_projects in Supabase
+    try {
+      await supabase
+        .from('migration_projects')
+        .update({ is_locked: locked })
+        .eq('project_name', pName)
+        .eq('master_type', mType);
+    } catch (e) {}
+
+    // 3. Persist to project_locks table in Supabase (if present)
+    try {
+      await supabase.from('project_locks').upsert(
+        { project_name: pName, master_type: mType, is_locked: locked },
+        { onConflict: 'project_name,master_type' }
+      );
+    } catch (e) {}
+
     try {
       window.dispatchEvent(new Event('project_lock_updated'));
     } catch (e) {}
     return true;
   } catch (e) {
     console.warn('Error setting master lock status:', e);
-    return true;
+    return false;
   }
 }
 
@@ -209,16 +275,19 @@ export async function setProjectLockStatus(projectName: string, locked: boolean)
   try {
     const pName = projectName.trim();
     localStorage.setItem('project_lock_' + pName, locked ? 'true' : 'false');
-    ['Material Master', 'Vendor Master', 'Customer Master'].forEach((m) => {
-      localStorage.setItem(`project_lock_${pName}__${m}`, locked ? 'true' : 'false');
-    });
+    const masters: MasterType[] = ['Material Master', 'Vendor Master', 'Customer Master'];
+
+    for (const m of masters) {
+      await setProjectMasterLockStatus(pName, m, locked);
+    }
+
     try {
       window.dispatchEvent(new Event('project_lock_updated'));
     } catch (e) {}
     return true;
   } catch (e) {
     console.warn('Error setting project lock status:', e);
-    return true;
+    return false;
   }
 }
 
