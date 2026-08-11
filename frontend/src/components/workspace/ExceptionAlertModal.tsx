@@ -176,12 +176,23 @@ export const ExceptionAlertModal: React.FC<ExceptionAlertModalProps> = ({
 
         {/* Footer */}
         <div className="flex items-center justify-between px-6 py-4 border-t border-slate-200 bg-white flex-shrink-0">
-          <div className="text-sm text-slate-500 font-medium flex items-center">
+          <div className="text-sm text-slate-500 font-medium flex items-center gap-4">
             {deletedRowIndices.size > 0 && (
               <span className="text-rose-600 bg-rose-50 px-3 py-1 rounded-full border border-rose-100">
                 {deletedRowIndices.size} row(s) deleted
               </span>
             )}
+            <button
+              onClick={() => {
+                const allFailing = new Set(exceptions.map(ex => ex.rowIndex));
+                setDeletedRowIndices(allFailing);
+              }}
+              className="inline-flex items-center px-4 py-2 text-sm font-medium text-rose-600 bg-white border border-rose-200 rounded-lg hover:bg-rose-50 hover:border-rose-300 focus:outline-none focus:ring-2 focus:ring-rose-500/20 transition-colors"
+              title="Delete all failing records"
+            >
+              <Trash2 className="w-4 h-4 mr-2" />
+              Delete All Invalid
+            </button>
           </div>
           <div className="flex items-center space-x-3">
             <button
