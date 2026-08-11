@@ -640,19 +640,20 @@ export const RulesDefinitionTab: React.FC = () => {
                 </tr>
               ) : (
                 paginatedRecords.map((record, pageIdx) => {
-                  const actualIndex = startIndex + pageIdx;
+                  const displayIndex = startIndex + pageIdx + 1;
+                  const realIndex = ruleRecords.indexOf(record);
 
                   return (
-                    <tr key={actualIndex} className="hover:bg-slate-50/80 transition-colors">
+                    <tr key={realIndex !== -1 ? realIndex : pageIdx} className="hover:bg-slate-50/80 transition-colors">
                       <td className="py-2 px-3 text-center text-slate-400 font-mono text-[11px] font-semibold">
-                        {actualIndex + 1}
+                        {displayIndex}
                       </td>
                       {ruleKeys.map((key) => (
                         <td key={key} className="py-2 px-2 border-r border-slate-100">
                           <input
                             type="text"
                             value={record[key] || ''}
-                            onChange={(e) => handleCellChange(actualIndex, key, e.target.value)}
+                            onChange={(e) => handleCellChange(realIndex !== -1 ? realIndex : startIndex + pageIdx, key, e.target.value)}
                             className="w-full px-2.5 py-1 bg-white border border-slate-300 rounded-lg text-xs font-mono text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500"
                           />
                         </td>
@@ -662,14 +663,14 @@ export const RulesDefinitionTab: React.FC = () => {
                           <input
                             type="text"
                             value={record[f] || ''}
-                            onChange={(e) => handleCellChange(actualIndex, f, e.target.value)}
+                            onChange={(e) => handleCellChange(realIndex !== -1 ? realIndex : startIndex + pageIdx, f, e.target.value)}
                             className="w-full px-2.5 py-1 bg-emerald-50/40 border border-emerald-300 rounded-lg text-xs font-mono text-emerald-900 focus:outline-none focus:ring-2 focus:ring-emerald-500"
                           />
                         </td>
                       ))}
                       <td className="py-2 px-3 text-center">
                         <button
-                          onClick={() => handleRemoveRow(actualIndex)}
+                          onClick={() => handleRemoveRow(realIndex !== -1 ? realIndex : startIndex + pageIdx)}
                           className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors"
                           title="Delete Rule Row"
                         >
