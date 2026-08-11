@@ -219,9 +219,10 @@ export const XmlGenerationTab: React.FC = () => {
     }
   };
 
-  const handleApplyCorrections = (corrections: Record<number, Record<string, string>>) => {
+  const handleApplyCorrections = (corrections: Record<number, Record<string, string>>, deletedIndices: Set<number>) => {
     setShowExceptionModal(false);
     
+    // Apply edits
     const updatedRecords = [...uploadedRecords];
     Object.keys(corrections).forEach((rowIndexStr) => {
       const rowIndex = parseInt(rowIndexStr, 10);
@@ -233,9 +234,12 @@ export const XmlGenerationTab: React.FC = () => {
         };
       }
     });
+
+    // Remove deleted rows
+    const filteredRecords = updatedRecords.filter((_, idx) => !deletedIndices.has(idx));
     
-    setUploadedRecords(updatedRecords);
-    handleExecuteMigration(updatedRecords);
+    setUploadedRecords(filteredRecords);
+    handleExecuteMigration(filteredRecords);
   };
 
   // Download XML file
@@ -270,6 +274,8 @@ export const XmlGenerationTab: React.FC = () => {
       <ExceptionAlertModal
         isOpen={showExceptionModal}
         exceptions={exceptions}
+        uploadedRecords={uploadedRecords}
+        templateColumns={templateColumns}
         onClose={() => setShowExceptionModal(false)}
         onSaveAndRetry={handleApplyCorrections}
       />
