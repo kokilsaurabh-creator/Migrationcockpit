@@ -1,8 +1,8 @@
-// frontend/src/services/xmlGeneratorService.ts
 import type { FieldMapping, FixedRuleRecord, MasterSchema, MasterType } from '../types';
 import type { PlantSLocMapping } from './plantStorageLocationService';
 import { MASTER_CONFIGS } from '../utils/constants';
 import { applySmartTextWrappingToRecord } from '../utils/textWrapper';
+import { getFieldDescription, getTechnicalFieldName } from '../utils/schemaLoader';
 
 function escapeXml(unsafe: string): string {
   return unsafe
@@ -161,15 +161,21 @@ export async function generateXmlPayload(
   const activeMappings = Array.from(mappingMap.values());
 
   expandedRecords.forEach((material, matIndex) => {
-    // Find matching rule with wildcard '*' support in saved rules
+    // Find matching rule with wildcard '*' support (in both saved rules AND raw material input)
     let matchedRule: FixedRuleRecord = {};
     for (const rule of savedRules) {
       let isMatch = true;
       for (const key of ruleKeys) {
         const rVal = normalizeVal(rule[key]);
         const mVal = normalizeVal(material[key]);
-        // '*' or empty in rule matches ANY value in raw data
-        if (rVal && rVal !== '*' && rVal !== mVal) {
+        // '*' or empty value in rule (rVal) OR in input material (mVal) matches ANY value
+        if (
+          rVal &&
+          rVal !== '*' &&
+          mVal &&
+          mVal !== '*' &&
+          rVal.toLowerCase() !== mVal.toLowerCase()
+        ) {
           isMatch = false;
           break;
         }
@@ -231,9 +237,31 @@ export async function generateXmlPayload(
       if (mappingType === 'Fixed Values') {
         resolvedValue = mapConfig.fixed_value || '';
       } else if (mappingType === 'Based on Fixed Rules') {
-        resolvedValue =
+        const techName = getTechnicalFieldName(fieldName, masterType);
+        const descStr = getFieldDescription(fieldName, masterType);
+
+        let valFromRule =
           normalizeVal(matchedRule[fieldName]) ||
-          normalizeVal(matchedRule[descName]);
+          normalizeVal(matchedRule[descName]) ||
+          normalizeVal(matchedRule[techName]) ||
+          normalizeVal(matchedRule[descStr]);
+
+        if (!valFromRule && matchedRule) {
+          // Fallback: Case-insensitive search across matchedRule keys
+          const targetKeys = [fieldName, descName, techName, descStr]
+            .filter(Boolean)
+            .map((k) => k.toLowerCase().trim());
+
+          for (const rKey of Object.keys(matchedRule)) {
+            const cleanRKey = rKey.toLowerCase().trim();
+            if (targetKeys.includes(cleanRKey)) {
+              valFromRule = normalizeVal(matchedRule[rKey]);
+              if (valFromRule) break;
+            }
+          }
+        }
+
+        resolvedValue = valFromRule;
       } else if (mappingType === 'Based on User Input') {
         resolvedValue =
           normalizeVal(material[fieldName]) ||
