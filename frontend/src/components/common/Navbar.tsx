@@ -13,9 +13,9 @@ export const Navbar: React.FC = () => {
   return (
     <header className="bg-slate-900 border-b border-slate-800 text-white sticky top-0 z-30 shadow-md">
       <div className="w-full px-4 sm:px-6 lg:px-8">
-        <div className="flex items-center justify-between h-16">
-          {/* Brand & Project Info */}
-          <div className="flex items-center space-x-4">
+        <div className="flex items-center h-16">
+          {/* Left: Brand Logo */}
+          <div className="flex-1 flex items-center">
             <div className="flex items-center space-x-3 cursor-pointer" onClick={() => setStep(1)}>
               <div className="w-9 h-9 rounded-lg bg-blue-600 flex items-center justify-center font-bold text-white shadow font-sans text-xl">
                 E
@@ -29,30 +29,24 @@ export const Navbar: React.FC = () => {
                 </span>
               </div>
             </div>
+          </div>
 
-            {user && (
-              <div className="hidden sm:flex items-center space-x-2 bg-slate-800/80 px-3 py-1.5 rounded-lg border border-slate-700 ml-4">
-                <div className="w-7 h-7 rounded-full bg-blue-500/20 text-blue-300 flex items-center justify-center text-xs font-bold border border-blue-400/30">
-                  {user.username.charAt(0).toUpperCase()}
-                </div>
-                <span className="text-xs font-medium text-slate-200">{user.username}</span>
-                <StatusBadge type="role" value={user.role} />
-              </div>
-            )}
-
+          {/* Center: Status-Driven Navigation (Breadcrumb) */}
+          <div className="flex-1 hidden md:flex justify-center items-center">
             {currentProject && step === 2 && (
-              <div className="hidden md:flex items-center space-x-2 pl-4 border-l border-slate-700">
-                <span className="inline-flex items-center text-xs font-semibold text-slate-300 bg-slate-800 px-3 py-1 rounded-md border border-slate-700">
+              <div className="flex items-center space-x-2 bg-slate-800/60 px-4 py-1.5 rounded-full border border-slate-700/50 shadow-inner">
+                <span className="text-xs font-semibold text-slate-300 flex items-center">
                   <FolderGit2 className="w-3.5 h-3.5 mr-1.5 text-blue-400" />
                   {currentProject}
                 </span>
-                <StatusBadge type="module" value={selectedMaster} />
+                <span className="text-slate-500 font-bold mx-1">›</span>
+                <span className="text-xs font-bold text-emerald-400">{selectedMaster}</span>
               </div>
             )}
           </div>
 
-          {/* Right Action Bar */}
-          <div className="flex items-center space-x-3">
+          {/* Right: Actions & Integrated User Context */}
+          <div className="flex-1 flex items-center justify-end space-x-3">
             {user?.role === 'Admin' && step !== 4 && (
               <button
                 onClick={() => setStep(4)}
@@ -66,12 +60,19 @@ export const Navbar: React.FC = () => {
 
             {user && (
               <div className="relative">
+                {/* Integrated User Context Trigger */}
                 <button
                   onClick={() => setIsDropdownOpen(!isDropdownOpen)}
-                  className="w-9 h-9 rounded-full bg-blue-500/20 hover:bg-blue-500/30 text-blue-300 flex items-center justify-center text-sm font-bold border border-blue-400/30 transition-colors cursor-pointer"
+                  className="flex items-center space-x-2 bg-slate-800/80 hover:bg-slate-700/80 px-1.5 py-1.5 pr-4 rounded-full border border-slate-700 transition-colors cursor-pointer text-left shadow-sm group"
                   title="Account Menu"
                 >
-                  {user.username.charAt(0).toUpperCase()}
+                  <div className="w-7 h-7 rounded-full bg-blue-500/20 text-blue-300 flex items-center justify-center text-xs font-bold border border-blue-400/30 group-hover:bg-blue-500/30 transition-colors">
+                    {user.username.charAt(0).toUpperCase()}
+                  </div>
+                  <div className="hidden sm:block">
+                    <span className="text-[11px] font-bold text-slate-200 block leading-none mb-0.5">{user.username}</span>
+                    <span className="text-[9px] font-bold uppercase tracking-wider text-slate-400 block leading-none">{user.role}</span>
+                  </div>
                 </button>
 
                 {isDropdownOpen && (
