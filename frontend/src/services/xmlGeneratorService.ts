@@ -663,27 +663,15 @@ export function validateXmlPayload(
       ? ['PRODUCT TYPE', 'PRODUCT GROUP', 'PLANT', 'DISTRIBUTION CHANNEL', 'SALES ORGANIZATION']
       : ['ACCOUNT GROUP', 'BP GROUP', 'BP TYPE'];
 
-    const keyMappings = fixedRuleMappings.filter(mapConfig => {
-       const fieldName = mapConfig.field_name.toUpperCase();
-       const techName = getTechnicalFieldName(mapConfig.field_name, masterType).toUpperCase();
-       const descStr = getFieldDescription(mapConfig.field_name, masterType).toUpperCase();
-       return keyFields.includes(fieldName) || keyFields.includes(techName) || keyFields.includes(descStr);
-    });
-
-    keyMappings.forEach((mapConfig) => {
-       const fieldName = mapConfig.field_name;
-       const techName = getTechnicalFieldName(fieldName, masterType);
-       const descStr = getFieldDescription(fieldName, masterType);
-       
-       const targetKeys = [fieldName, descStr, techName]
-          .filter(Boolean)
-          .map((k) => k.toLowerCase().trim());
-          
+    keyFields.forEach((keyField) => {
        let isMissing = true;
        if (matchedRule && Object.keys(matchedRule).length > 0) {
           for (const rKey of Object.keys(matchedRule)) {
-            const cleanRKey = rKey.toLowerCase().trim();
-            if (targetKeys.includes(cleanRKey)) {
+            const cleanRKey = rKey.toUpperCase().trim();
+            const techName = getTechnicalFieldName(cleanRKey, masterType).toUpperCase();
+            const descStr = getFieldDescription(cleanRKey, masterType).toUpperCase();
+            
+            if (cleanRKey === keyField || techName === keyField || descStr === keyField) {
               isMissing = false;
               break;
             }
@@ -693,7 +681,7 @@ export function validateXmlPayload(
        if (isMissing) {
           exceptions.push({
             rowIndex,
-            fieldName: descStr || fieldName,
+            fieldName: keyField,
             expectedRule: 'Based on Fixed Rules',
             currentValue: ''
           });
