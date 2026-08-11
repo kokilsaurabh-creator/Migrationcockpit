@@ -76,7 +76,7 @@ export const ProjectSetupHub: React.FC = () => {
           </div>
 
           {/* Sub Navigation Bar */}
-          <div className="bg-slate-50 border-b border-slate-200 px-6 py-3 flex items-center justify-between">
+          <div className="bg-slate-50 border-b border-slate-200 px-6 py-3 flex items-center justify-center">
             <div className="flex space-x-2">
               <button
                 onClick={() => setActiveTab('open')}
@@ -133,44 +133,6 @@ export const ProjectSetupHub: React.FC = () => {
                       </option>
                     ))}
                   </select>
-                </div>
-
-                {/* Module Select */}
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-2">
-                    Select Master Data Module
-                  </label>
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                    {availableModules.map((module) => {
-                      const isSelected = selectedModule === module;
-                      const icon =
-                        module === 'Material Master' ? (
-                          <Package className="w-5 h-5 text-emerald-600" />
-                        ) : module === 'Vendor Master' ? (
-                          <Building2 className="w-5 h-5 text-indigo-600" />
-                        ) : (
-                          <Users className="w-5 h-5 text-amber-600" />
-                        );
-
-                      return (
-                        <div
-                          key={module}
-                          onClick={() => setSelectedModule(module)}
-                          className={`p-4 rounded-xl border-2 cursor-pointer transition-all flex flex-col items-center text-center space-y-2 ${
-                            isSelected
-                              ? 'border-blue-600 bg-blue-50/50 shadow-md ring-1 ring-blue-500'
-                              : 'border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50/80'
-                          }`}
-                        >
-                          {icon}
-                          <span className="text-xs font-bold text-slate-800 leading-tight">
-                            {module}
-                          </span>
-                          <StatusBadge type="module" value={module} className="text-[10px]" />
-                        </div>
-                      );
-                    })}
-                  </div>
                 </div>
 
                 {/* Launch CTA */}
