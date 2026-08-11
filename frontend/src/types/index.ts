@@ -130,3 +130,9 @@ export interface DuplicateCheckResult {
   summary: string;
 }
 
+export interface GenerationException {
+  rowIndex: number;
+  fieldName: string;
+  expectedRule: string;
+  currentValue: string;
+}

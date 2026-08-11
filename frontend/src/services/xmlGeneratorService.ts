@@ -1,4 +1,4 @@
-import type { FieldMapping, FixedRuleRecord, MasterSchema, MasterType } from '../types';
+import type { FieldMapping, FixedRuleRecord, MasterSchema, MasterType, GenerationException } from '../types';
 import type { PlantSLocMapping } from './plantStorageLocationService';
 import { MASTER_CONFIGS } from '../utils/constants';
 import { applySmartTextWrappingToRecord } from '../utils/textWrapper';
@@ -61,13 +61,13 @@ export function expandRawRecords(
 
   if (expandableFields.length === 0 || savedRules.length === 0) {
     const result: Record<string, any>[] = [];
-    uploadedRecords.forEach(r => result.push(...expandSingleRecordFallback(r, expandableFields)));
+    uploadedRecords.forEach((r, idx) => result.push(...expandSingleRecordFallback({ ...r, _originalIndex: idx }, expandableFields)));
     return result;
   }
 
   const expandedRecords: Record<string, any>[] = [];
 
-  uploadedRecords.forEach((record) => {
+  uploadedRecords.forEach((record, idx) => {
     // 1. Find compatible rules for this specific record
     const compatibleRules = savedRules.filter((rule) => {
       return expandableFields.every((field) => {
@@ -104,8 +104,7 @@ export function expandRawRecords(
     });
 
     if (compatibleRules.length === 0) {
-      // No rules match this record. Do a simple fallback expansion for comma-separated values, but leave '*' as '*'
-      expandedRecords.push(...expandSingleRecordFallback(record, expandableFields));
+      expandedRecords.push(...expandSingleRecordFallback({ ...record, _originalIndex: idx }, expandableFields));
       return;
     }
 
@@ -149,7 +148,7 @@ export function expandRawRecords(
 
     // 3. Emit expanded records for each unique combination
     combinationObjects.forEach(combo => {
-      expandedRecords.push({ ...record, ...combo });
+      expandedRecords.push({ ...record, ...combo, _originalIndex: idx });
     });
   });
 
@@ -576,4 +575,137 @@ export async function generateXmlPayload(
   }
 
   return xmlContent;
+}
+
+export function validateXmlPayload(
+  masterType: MasterType,
+  schema: MasterSchema,
+  allMappings: FieldMapping[],
+  savedRules: FixedRuleRecord[],
+  uploadedRecords: Record<string, any>[]
+): GenerationException[] {
+  const exceptions: GenerationException[] = [];
+  const ruleKeys = MASTER_CONFIGS[masterType]?.ruleKeys || [];
+  
+  const expandedRecords = expandRawRecords(masterType, savedRules, uploadedRecords, allMappings);
+  
+  const validMasterDbViews = Object.keys(schema).map((view) =>
+    view.includes('. ') ? view.split('. ')[1] : view
+  );
+  
+  const mappingMap = new Map<string, FieldMapping>();
+  allMappings.forEach((m) => {
+    const sheetName = m.view_name.includes('. ') ? m.view_name.split('. ')[1] : m.view_name;
+    const isMasterView = validMasterDbViews.includes(sheetName) || Object.keys(schema).includes(sheetName);
+    if (!isMasterView) return;
+
+    const key = `${sheetName}||${m.field_name}`;
+    const existing = mappingMap.get(key);
+
+    if (!existing) {
+      mappingMap.set(key, m);
+    } else {
+      if (existing.mapping_type === 'Blank (Default)' && m.mapping_type !== 'Blank (Default)') {
+        mappingMap.set(key, m);
+      }
+    }
+  });
+
+  const activeMappings = Array.from(mappingMap.values());
+  const fixedRuleMappings = activeMappings.filter(m => m.mapping_type === 'Based on Fixed Rules');
+  
+  if (fixedRuleMappings.length === 0) return exceptions;
+
+  expandedRecords.forEach((material) => {
+    let matchedRule: FixedRuleRecord = {};
+    for (const rule of savedRules) {
+      let isMatch = true;
+      for (const key of ruleKeys) {
+        const rVal = normalizeVal(rule[key]);
+        
+        let mVal = normalizeVal(material[key]);
+        if (!mVal && allMappings.length > 0) {
+          const mapping = allMappings.find(m => {
+            const tName = getTechnicalFieldName(m.field_name, masterType).toLowerCase();
+            const dName = getFieldDescription(m.field_name, masterType).toLowerCase();
+            const fLower = key.toLowerCase();
+            return tName === fLower || dName === fLower || m.field_name.toLowerCase() === fLower;
+          });
+          if (mapping) {
+            if (mapping.mapping_type === 'Fixed Values' && mapping.fixed_value) {
+              mVal = normalizeVal(mapping.fixed_value);
+            } else if (mapping.mapping_type === 'Based on User Input' && mapping.source_field) {
+              mVal = normalizeVal(material[mapping.source_field]);
+            }
+          }
+        }
+        
+        if (
+          rVal &&
+          rVal !== '*' &&
+          mVal &&
+          mVal !== '*' &&
+          rVal.toLowerCase() !== mVal.toLowerCase()
+        ) {
+          isMatch = false;
+          break;
+        }
+      }
+      if (isMatch) {
+        matchedRule = rule;
+        break;
+      }
+    }
+
+    const rowIndex = material._originalIndex ?? 0;
+    
+    fixedRuleMappings.forEach((mapConfig) => {
+       const fieldName = mapConfig.field_name;
+       const techName = getTechnicalFieldName(fieldName, masterType);
+       const descStr = getFieldDescription(fieldName, masterType);
+       
+       let valFromRule =
+          normalizeVal(matchedRule[fieldName]) ||
+          normalizeVal(matchedRule[descStr]) ||
+          normalizeVal(matchedRule[techName]);
+          
+       if (!valFromRule && matchedRule) {
+          const targetKeys = [fieldName, descStr, techName]
+            .filter(Boolean)
+            .map((k) => k.toLowerCase().trim());
+            
+          for (const rKey of Object.keys(matchedRule)) {
+            const cleanRKey = rKey.toLowerCase().trim();
+            if (targetKeys.includes(cleanRKey)) {
+              valFromRule = normalizeVal(matchedRule[rKey]);
+              if (valFromRule) break;
+            }
+          }
+       }
+       
+       if (!valFromRule) {
+          const fallbackVal = normalizeVal(material[fieldName]) || normalizeVal(material[descStr]);
+          if (!fallbackVal) {
+             exceptions.push({
+               rowIndex,
+               fieldName: descStr || fieldName,
+               expectedRule: 'Based on Fixed Rules',
+               currentValue: ''
+             });
+          }
+       }
+    });
+  });
+
+  const deduped: GenerationException[] = [];
+  const seen = new Set<string>();
+  for (const ex of exceptions) {
+    const k = `${ex.rowIndex}||${ex.fieldName}`;
+    if (!seen.has(k)) {
+      seen.add(k);
+      deduped.push(ex);
+    }
+  }
+
+  return deduped;
 }

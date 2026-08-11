@@ -5,13 +5,14 @@ import { loadMasterSchema, getFieldDescription } from '../../utils/schemaLoader'
 import { fetchMappingsForProject } from '../../services/mappingService';
 import { fetchProjectRules } from '../../services/rulesService';
 import { fetchPlantSLocMappings } from '../../services/plantStorageLocationService';
-import { generateXmlPayload, expandRawRecords } from '../../services/xmlGeneratorService';
+import { generateXmlPayload, expandRawRecords, validateXmlPayload } from '../../services/xmlGeneratorService';
 import { checkMasterDataDuplicates } from '../../services/duplicateCheckService';
 import { MASTER_CONFIGS } from '../../utils/constants';
-import { FieldMapping, FixedRuleRecord, DuplicateCheckResult } from '../../types';
+import { FieldMapping, FixedRuleRecord, DuplicateCheckResult, GenerationException } from '../../types';
 import { DataGrid } from '../common/DataGrid';
 import { Toast } from '../common/Toast';
 import { DuplicateWarningModal } from './DuplicateWarningModal';
+import { ExceptionAlertModal } from './ExceptionAlertModal';
 import * as XLSX from 'xlsx';
 import { FileCode, Download, Upload, Play, CheckCircle2, Loader2, FileSpreadsheet, Sparkles, ShieldAlert, ShieldCheck } from 'lucide-react';
 
@@ -35,6 +36,9 @@ export const XmlGenerationTab: React.FC = () => {
   const [showDuplicateModal, setShowDuplicateModal] = useState<boolean>(false);
 
   const [toast, setToast] = useState<{ type: 'success' | 'error'; msg: string } | null>(null);
+
+  const [exceptions, setExceptions] = useState<GenerationException[]>([]);
+  const [showExceptionModal, setShowExceptionModal] = useState<boolean>(false);
 
   useEffect(() => {
     if (!currentProject) return;
@@ -183,6 +187,14 @@ export const XmlGenerationTab: React.FC = () => {
     setToast(null);
 
     try {
+      const validationExceptions = validateXmlPayload(selectedMaster, schema, allMappings, savedRules, records);
+      if (validationExceptions.length > 0) {
+        setExceptions(validationExceptions);
+        setShowExceptionModal(true);
+        setExecuting(false);
+        return;
+      }
+
       const plantSLocMappings = await fetchPlantSLocMappings(currentProject || '');
       const xmlResult = await generateXmlPayload(
         selectedMaster,
@@ -205,6 +217,25 @@ export const XmlGenerationTab: React.FC = () => {
       setExecuting(false);
       setToast({ type: 'error', msg: `XML Payload Generation error: ${err.message}` });
     }
+  };
+
+  const handleApplyCorrections = (corrections: Record<number, Record<string, string>>) => {
+    setShowExceptionModal(false);
+    
+    const updatedRecords = [...uploadedRecords];
+    Object.keys(corrections).forEach((rowIndexStr) => {
+      const rowIndex = parseInt(rowIndexStr, 10);
+      const rowCorrections = corrections[rowIndex];
+      if (updatedRecords[rowIndex]) {
+        updatedRecords[rowIndex] = {
+          ...updatedRecords[rowIndex],
+          ...rowCorrections
+        };
+      }
+    });
+    
+    setUploadedRecords(updatedRecords);
+    handleExecuteMigration(updatedRecords);
   };
 
   // Download XML file
@@ -235,6 +266,13 @@ export const XmlGenerationTab: React.FC = () => {
   return (
     <div className="space-y-6">
       {toast && <Toast type={toast.type} message={toast.msg} onClose={() => setToast(null)} />}
+
+      <ExceptionAlertModal
+        isOpen={showExceptionModal}
+        exceptions={exceptions}
+        onClose={() => setShowExceptionModal(false)}
+        onSaveAndRetry={handleApplyCorrections}
+      />
 
       {/* Duplicate Warning Modal */}
       {showDuplicateModal && duplicateResult && (
