@@ -305,6 +305,12 @@ export async function generateXmlPayload(
         rowDict['Vendor Code'] = pkVal;
       }
 
+      // Auto-populate global plant to prevent data isolation issues on child sheets
+      const globalPlant = normalizeVal(material['WERKS']) || normalizeVal(material['Plant']);
+      if (globalPlant) {
+        rowDict['__GLOBAL_PLANT'] = globalPlant;
+      }
+
       let resolvedValue = '';
       if (mappingType === 'Fixed Values') {
         resolvedValue = mapConfig.fixed_value || '';
@@ -358,7 +364,7 @@ export async function generateXmlPayload(
       if (
         masterType === 'Material Master' &&
         (fieldName === 'BWKEY' || fieldName === 'Valuation Area' || descName === 'Valuation Area') &&
-        !resolvedValue
+        (!resolvedValue || resolvedValue === '*')
       ) {
         resolvedValue =
           normalizeVal(material['WERKS']) ||
@@ -367,6 +373,10 @@ export async function generateXmlPayload(
           normalizeVal(rowDict['Plant']) ||
           normalizeVal(material['BWKEY']) ||
           normalizeVal(material['Valuation Area']);
+          
+        if (resolvedValue === '*') {
+          resolvedValue = '';
+        }
       }
 
       // Assign to both technical field_name AND description so both lookups succeed
@@ -399,9 +409,9 @@ export async function generateXmlPayload(
 
       rowsList.forEach((row) => {
         const slocVal = (row['LGORT'] || row['Storage Location'] || '').trim();
-        const plantVal = (row['WERKS'] || row['Plant'] || row['Valuation Area'] || '').trim().toUpperCase();
+        const plantVal = (row['WERKS'] || row['Plant'] || row['Valuation Area'] || row['__GLOBAL_PLANT'] || '').trim().toUpperCase();
 
-        if ((slocVal === '*' || slocVal === '') && plantVal) {
+        if ((slocVal === '*' || slocVal === '') && plantVal && plantVal !== '*') {
           const matchedSLocs = plantSLocMappings
             .filter((m: PlantSLocMapping) => m.plant_code.trim().toUpperCase() === plantVal)
             .map((m: PlantSLocMapping) => m.storage_location_code.trim().toUpperCase());
@@ -429,7 +439,7 @@ export async function generateXmlPayload(
   if (masterType === 'Material Master') {
     for (const sheetName of Object.keys(finalSapData)) {
       finalSapData[sheetName].forEach((row) => {
-        const plantVal = (row['WERKS'] || row['Plant'] || '').trim();
+        const plantVal = (row['WERKS'] || row['Plant'] || row['__GLOBAL_PLANT'] || '').trim();
         const currentBwkey = (row['BWKEY'] || row['Valuation Area'] || '').trim();
 
         if (plantVal && plantVal !== '*') {
