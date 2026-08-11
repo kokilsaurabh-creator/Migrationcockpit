@@ -4,14 +4,31 @@ import { FixedRuleRecord, MasterType } from '../types';
 
 export async function fetchProjectRules(projectName: string, masterType: MasterType): Promise<FixedRuleRecord[]> {
   try {
-    const { data, error } = await supabase
-      .from('project_fixed_rules')
-      .select('*')
-      .eq('project_name', projectName)
-      .eq('master_type', masterType);
+    let allData: any[] = [];
+    let page = 0;
+    const pageSize = 1000;
 
-    if (error || !data) return [];
-    return data.map((r: any) => {
+    while (true) {
+      const { data, error } = await supabase
+        .from('project_fixed_rules')
+        .select('*')
+        .eq('project_name', projectName)
+        .eq('master_type', masterType)
+        .range(page * pageSize, (page + 1) * pageSize - 1);
+
+      if (error || !data) break;
+      
+      allData = allData.concat(data);
+      
+      if (data.length < pageSize) break;
+      
+      page++;
+      
+      // Safety limit to prevent infinite loops (max 20k records = 20 pages)
+      if (page >= 20) break;
+    }
+
+    return allData.map((r: any) => {
       const ruleObj = r.rule_data || {};
       return {
         id: r.id,
