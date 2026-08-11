@@ -172,8 +172,9 @@ export const XmlGenerationTab: React.FC = () => {
   };
 
   // Execute Transformation & XML Payload Generation
-  const handleExecuteMigration = async () => {
-    if (uploadedRecords.length === 0) {
+  const handleExecuteMigration = async (recordsToUse?: Record<string, any>[]) => {
+    const records = recordsToUse || uploadedRecords;
+    if (records.length === 0) {
       setToast({ type: 'error', msg: 'Please upload raw data Excel file first.' });
       return;
     }
@@ -188,15 +189,17 @@ export const XmlGenerationTab: React.FC = () => {
         schema,
         allMappings,
         savedRules,
-        uploadedRecords,
+        records,
         plantSLocMappings
       );
 
+      const expanded = expandRawRecords(selectedMaster, savedRules, records);
+      setExpandedCount(expanded.length);
       setGeneratedXml(xmlResult);
       setExecuting(false);
       setToast({
         type: 'success',
-        msg: `Payload generated successfully for ${expandedCount} record combinations!`
+        msg: `Payload generated successfully for ${expanded.length} record combinations (${records.length} raw records)!`
       });
     } catch (err: any) {
       setExecuting(false);
@@ -239,9 +242,42 @@ export const XmlGenerationTab: React.FC = () => {
           result={duplicateResult}
           inputRecord={uploadedRecords[0]}
           onCancel={() => setShowDuplicateModal(false)}
-          onProceed={() => {
+          onProceed={(allowedSapIds: string[]) => {
             setShowDuplicateModal(false);
-            handleExecuteMigration();
+            const allowedSet = new Set(allowedSapIds.map((id) => id.trim().toUpperCase()));
+
+            const filtered = uploadedRecords.filter((rec) => {
+              const recId = String(
+                rec.Product ||
+                rec.MATNR ||
+                rec['Product Number'] ||
+                rec.Product_Number ||
+                rec.Material_Code ||
+                rec['Material Code'] ||
+                rec.Material ||
+                rec.GSTIN ||
+                rec.STCD3 ||
+                rec.Name1 ||
+                ''
+              ).trim().toUpperCase();
+
+              const wasMatched = duplicateResult.matches.some(
+                (m) => m.sap_id.trim().toUpperCase() === recId
+              );
+
+              if (wasMatched) {
+                return allowedSet.has(recId);
+              }
+              return true;
+            });
+
+            setUploadedRecords(filtered);
+            setToast({
+              type: 'success',
+              msg: `Proceeding with ${filtered.length} allowed records (${uploadedRecords.length - filtered.length} disallowed entries omitted).`
+            });
+
+            handleExecuteMigration(filtered);
           }}
         />
       )}
@@ -310,7 +346,7 @@ export const XmlGenerationTab: React.FC = () => {
 
             {/* Execute Migration Button */}
             <button
-              onClick={handleExecuteMigration}
+              onClick={() => handleExecuteMigration()}
               disabled={executing || uploadedRecords.length === 0}
               className="inline-flex items-center px-5 py-2 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 active:bg-blue-800 rounded-xl shadow-md transition-all disabled:opacity-50"
             >
