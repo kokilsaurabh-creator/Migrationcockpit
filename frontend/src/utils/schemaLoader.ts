@@ -57,6 +57,7 @@ export function getTechnicalFieldName(descOrFieldKey: string, masterType: Master
   const schema = loadMasterSchema(masterType);
   const cleanDesc = descOrFieldKey.trim().toLowerCase();
 
+  // 1. Exact match first
   for (const viewName of Object.keys(schema)) {
     const fields = schema[viewName] || [];
     for (const f of fields) {
@@ -68,6 +69,24 @@ export function getTechnicalFieldName(descOrFieldKey: string, masterType: Master
       }
     }
   }
+
+  // 2. Normalized fallback match (strips non-alphanumeric and 'indicator:')
+  const normalize = (s: string) => s.toLowerCase().replace(/indicator:\s*/g, '').replace(/[^a-z0-9]/g, '');
+  const normalizedDesc = normalize(descOrFieldKey);
+
+  if (normalizedDesc) {
+    for (const viewName of Object.keys(schema)) {
+      const fields = schema[viewName] || [];
+      for (const f of fields) {
+        if (f.description && normalize(f.description) === normalizedDesc) {
+          return f.field_name || f.description;
+        }
+        if (f.field_name && normalize(f.field_name) === normalizedDesc) {
+          return f.field_name;
+        }
+      }
+    }
+  }
+
   return descOrFieldKey;
 }
-

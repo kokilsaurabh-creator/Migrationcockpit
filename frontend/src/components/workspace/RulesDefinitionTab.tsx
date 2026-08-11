@@ -327,22 +327,36 @@ export const RulesDefinitionTab: React.FC = () => {
 
   // Excel Template / Data Download
   const handleDownloadTemplate = () => {
-    const exportData =
-      ruleRecords.length > 0
-        ? ruleRecords.map((r) => {
-            const row: Record<string, string> = {};
-            allColumns.forEach((col) => {
-              const label = getFieldDescription(col, selectedMaster);
-              row[label] = String(r[col] || r[label] || '');
-            });
-            return row;
-          })
-        : [
-            allColumns.reduce((acc, col) => {
-              const label = getFieldDescription(col, selectedMaster);
-              return { ...acc, [label]: '' };
-            }, {})
-          ];
+    const exportData: any[] = [];
+    
+    // Create a mapping of Technical Key -> Human Label
+    const headerMap: Record<string, string> = {};
+    allColumns.forEach((col) => {
+      headerMap[col] = getFieldDescription(col, selectedMaster);
+    });
+
+    // Row 2: Technical Field Names
+    const techHeaderRow: Record<string, string> = {};
+    allColumns.forEach((col) => {
+      techHeaderRow[headerMap[col]] = col;
+    });
+    exportData.push(techHeaderRow);
+
+    if (ruleRecords.length > 0) {
+      ruleRecords.forEach((r) => {
+        const row: Record<string, string> = {};
+        allColumns.forEach((col) => {
+          row[headerMap[col]] = String(r[col] || r[headerMap[col]] || '');
+        });
+        exportData.push(row);
+      });
+    } else {
+      const emptyRow: Record<string, string> = {};
+      allColumns.forEach((col) => {
+        emptyRow[headerMap[col]] = '';
+      });
+      exportData.push(emptyRow);
+    }
 
     const worksheet = XLSX.utils.json_to_sheet(exportData);
     const workbook = XLSX.utils.book_new();
@@ -364,16 +378,48 @@ export const RulesDefinitionTab: React.FC = () => {
         const ws = workbook.Sheets[wsname];
         const data = XLSX.utils.sheet_to_json<Record<string, any>>(ws, { defval: '' });
 
-        const importedRules: FixedRuleRecord[] = data.map((row) => {
+        let isTwoRowHeader = false;
+        const techKeyMapping: Record<string, string> = {};
+
+        if (data.length > 0) {
+          const firstRow = data[0];
+          let matchCount = 0;
+          let checkCount = 0;
+
+          // Check first 3 columns to confidently identify a technical header row
+          const colsToCheck = Object.keys(firstRow).slice(0, 3);
+          for (const header of colsToCheck) {
+            checkCount++;
+            const val = String(firstRow[header] || '').trim();
+            const expectedTechKey = getTechnicalFieldName(header, selectedMaster);
+            if (val && (val === expectedTechKey || val === header)) {
+              matchCount++;
+            }
+          }
+
+          if (checkCount > 0 && matchCount === checkCount) {
+            isTwoRowHeader = true;
+            Object.keys(firstRow).forEach(header => {
+               techKeyMapping[header] = String(firstRow[header] || '').trim();
+            });
+          }
+        }
+
+        const actualData = isTwoRowHeader ? data.slice(1) : data;
+
+        const importedRules: FixedRuleRecord[] = actualData.map((row) => {
           const ruleRec: FixedRuleRecord = {
             project_name: currentProject || '',
             master_type: selectedMaster
           };
 
           Object.keys(row).forEach((header) => {
-            const techKey = getTechnicalFieldName(header, selectedMaster);
+            const techKey = isTwoRowHeader && techKeyMapping[header] 
+              ? techKeyMapping[header] 
+              : getTechnicalFieldName(header, selectedMaster);
+              
             const val = String(row[header] || '').trim();
-            ruleRec[techKey] = val;
+            if (techKey) ruleRec[techKey] = val;
             ruleRec[header] = val;
           });
 

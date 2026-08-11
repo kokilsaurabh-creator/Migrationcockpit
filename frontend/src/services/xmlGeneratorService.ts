@@ -214,10 +214,17 @@ export async function generateXmlPayload(
 
   const activeMappings = Array.from(mappingMap.values());
 
+  // Sort rules by specificity (fewer wildcards = higher priority)
+  const sortedRules = [...savedRules].sort((a, b) => {
+    const aScore = ruleKeys.filter((k) => a[k] && a[k] !== '*').length;
+    const bScore = ruleKeys.filter((k) => b[k] && b[k] !== '*').length;
+    return bScore - aScore; // Descending order
+  });
+
   expandedRecords.forEach((material, matIndex) => {
     // Find matching rule with wildcard '*' support (in both saved rules AND raw material input)
     let matchedRule: FixedRuleRecord = {};
-    for (const rule of savedRules) {
+    for (const rule of sortedRules) {
       let isMatch = true;
       for (const key of ruleKeys) {
         const rVal = normalizeVal(rule[key]);
