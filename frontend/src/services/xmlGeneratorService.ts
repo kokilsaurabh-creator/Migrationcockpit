@@ -659,40 +659,44 @@ export function validateXmlPayload(
 
     const rowIndex = material._originalIndex ?? 0;
     
-    fixedRuleMappings.forEach((mapConfig) => {
+    const keyFields = masterType === 'Material Master' 
+      ? ['PRODUCT TYPE', 'PRODUCT GROUP', 'PLANT', 'DISTRIBUTION CHANNEL', 'SALES ORGANIZATION']
+      : ['ACCOUNT GROUP', 'BP GROUP', 'BP TYPE'];
+
+    const keyMappings = fixedRuleMappings.filter(mapConfig => {
+       const fieldName = mapConfig.field_name.toUpperCase();
+       const techName = getTechnicalFieldName(mapConfig.field_name, masterType).toUpperCase();
+       const descStr = getFieldDescription(mapConfig.field_name, masterType).toUpperCase();
+       return keyFields.includes(fieldName) || keyFields.includes(techName) || keyFields.includes(descStr);
+    });
+
+    keyMappings.forEach((mapConfig) => {
        const fieldName = mapConfig.field_name;
        const techName = getTechnicalFieldName(fieldName, masterType);
        const descStr = getFieldDescription(fieldName, masterType);
        
-       let valFromRule =
-          normalizeVal(matchedRule[fieldName]) ||
-          normalizeVal(matchedRule[descStr]) ||
-          normalizeVal(matchedRule[techName]);
+       const targetKeys = [fieldName, descStr, techName]
+          .filter(Boolean)
+          .map((k) => k.toLowerCase().trim());
           
-       if (!valFromRule && matchedRule) {
-          const targetKeys = [fieldName, descStr, techName]
-            .filter(Boolean)
-            .map((k) => k.toLowerCase().trim());
-            
+       let isMissing = true;
+       if (matchedRule && Object.keys(matchedRule).length > 0) {
           for (const rKey of Object.keys(matchedRule)) {
             const cleanRKey = rKey.toLowerCase().trim();
             if (targetKeys.includes(cleanRKey)) {
-              valFromRule = normalizeVal(matchedRule[rKey]);
-              if (valFromRule) break;
+              isMissing = false;
+              break;
             }
           }
        }
        
-       if (!valFromRule) {
-          const fallbackVal = normalizeVal(material[fieldName]) || normalizeVal(material[descStr]);
-          if (!fallbackVal) {
-             exceptions.push({
-               rowIndex,
-               fieldName: descStr || fieldName,
-               expectedRule: 'Based on Fixed Rules',
-               currentValue: ''
-             });
-          }
+       if (isMissing) {
+          exceptions.push({
+            rowIndex,
+            fieldName: descStr || fieldName,
+            expectedRule: 'Based on Fixed Rules',
+            currentValue: ''
+          });
        }
     });
   });
