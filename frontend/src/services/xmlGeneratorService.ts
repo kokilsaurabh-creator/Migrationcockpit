@@ -29,66 +29,128 @@ function normalizeVal(val: any): string {
  * - Customer Master: Distribution Channel, Division
  * - Vendor Master: Purchasing Organization, Company Code
  */
+function expandSingleRecordFallback(record: Record<string, any>, fields: string[]): Record<string, any>[] {
+  let currentBatch: Record<string, any>[] = [{ ...record }];
+
+  fields.forEach((field) => {
+    const nextBatch: Record<string, any>[] = [];
+    currentBatch.forEach((item) => {
+      const rawVal = normalizeVal(item[field]);
+      if (rawVal !== '*' && (rawVal.includes(',') || rawVal.includes(';') || rawVal.includes('/'))) {
+        const splitVals = rawVal.split(/[,;/]+/).map((s) => s.trim()).filter(Boolean);
+        splitVals.forEach((v) => {
+          nextBatch.push({ ...item, [field]: v });
+        });
+      } else {
+        nextBatch.push(item);
+      }
+    });
+    currentBatch = nextBatch;
+  });
+
+  return currentBatch;
+}
+
 export function expandRawRecords(
   masterType: MasterType,
   savedRules: FixedRuleRecord[],
-  uploadedRecords: Record<string, any>[]
+  uploadedRecords: Record<string, any>[],
+  allMappings: FieldMapping[] = []
 ): Record<string, any>[] {
-  let expandableFields: string[] = MASTER_CONFIGS[masterType]?.ruleKeys || [];
+  const expandableFields: string[] = MASTER_CONFIGS[masterType]?.ruleKeys || [];
 
-  // Extract unique distinct non-wildcard values from savedRules for each expandable field
-  const uniqueValuesMap: Record<string, string[]> = {};
-  expandableFields.forEach((field) => {
-    const vals = savedRules
-      .map((r) => normalizeVal(r[field]))
-      .filter((v) => v !== '' && v !== '*');
-    uniqueValuesMap[field] = Array.from(new Set(vals));
-  });
+  if (expandableFields.length === 0 || savedRules.length === 0) {
+    const result: Record<string, any>[] = [];
+    uploadedRecords.forEach(r => result.push(...expandSingleRecordFallback(r, expandableFields)));
+    return result;
+  }
 
   const expandedRecords: Record<string, any>[] = [];
 
   uploadedRecords.forEach((record) => {
-    let currentBatch: Record<string, any>[] = [{ ...record }];
-
-    expandableFields.forEach((field) => {
-      const nextBatch: Record<string, any>[] = [];
-
-      currentBatch.forEach((item) => {
-        const rawVal = normalizeVal(item[field]);
-
-        if (rawVal === '*') {
-          // Wildcard '*': Expand across ALL unique values found in savedRules for this field
-          const targetValues = uniqueValuesMap[field] || [];
-          if (targetValues.length > 0) {
-            targetValues.forEach((v) => {
-              nextBatch.push({ ...item, [field]: v });
-            });
-          } else {
-            nextBatch.push(item);
+    // 1. Find compatible rules for this specific record
+    const compatibleRules = savedRules.filter((rule) => {
+      return expandableFields.every((field) => {
+        const rVal = normalizeVal(rule[field]);
+        
+        let mVal = normalizeVal(record[field]);
+        if (!mVal && allMappings.length > 0) {
+          const mapping = allMappings.find(m => {
+            const tName = getTechnicalFieldName(m.field_name, masterType).toLowerCase();
+            const dName = getFieldDescription(m.field_name, masterType).toLowerCase();
+            const fLower = field.toLowerCase();
+            return tName === fLower || dName === fLower || m.field_name.toLowerCase() === fLower;
+          });
+          if (mapping) {
+            if (mapping.mapping_type === 'Fixed Values' && mapping.fixed_value) {
+              mVal = normalizeVal(mapping.fixed_value);
+            } else if (mapping.mapping_type === 'Based on User Input' && mapping.source_field) {
+              mVal = normalizeVal(record[mapping.source_field]);
+            }
           }
-        } else if (rawVal.includes(',') || rawVal.includes(';') || rawVal.includes('/')) {
-          // Multi-value list (e.g., "VW58, VW57"): Expand for each listed value
-          const splitVals = rawVal
-            .split(/[,;/]+/)
-            .map((s) => s.trim())
-            .filter(Boolean);
-          if (splitVals.length > 0) {
-            splitVals.forEach((v) => {
-              nextBatch.push({ ...item, [field]: v });
-            });
-          } else {
-            nextBatch.push(item);
-          }
-        } else {
-          // Standard single value
-          nextBatch.push(item);
         }
-      });
+        
+        if (!rVal || rVal === '*') return true; // Rule allows anything
+        if (!mVal || mVal === '*') return true; // Record allows anything
+        
+        // Check if mVal is a comma-separated list containing rVal
+        if (mVal.includes(',') || mVal.includes(';') || mVal.includes('/')) {
+           const splitVals = mVal.split(/[,;/]+/).map(s => s.trim().toLowerCase());
+           if (splitVals.includes(rVal.toLowerCase())) return true;
+        }
 
-      currentBatch = nextBatch;
+        return rVal.toLowerCase() === mVal.toLowerCase();
+      });
     });
 
-    expandedRecords.push(...currentBatch);
+    if (compatibleRules.length === 0) {
+      // No rules match this record. Do a simple fallback expansion for comma-separated values, but leave '*' as '*'
+      expandedRecords.push(...expandSingleRecordFallback(record, expandableFields));
+      return;
+    }
+
+    // 2. Extract unique distinct combinations of expandable fields from compatible rules
+    const uniqueCombinations = new Set<string>();
+    const combinationObjects: Record<string, string>[] = [];
+
+    compatibleRules.forEach(rule => {
+      const combo: Record<string, string> = {};
+      expandableFields.forEach(field => {
+        let mVal = normalizeVal(record[field]);
+        if (!mVal && allMappings.length > 0) {
+          const mapping = allMappings.find(m => {
+            const tName = getTechnicalFieldName(m.field_name, masterType).toLowerCase();
+            const dName = getFieldDescription(m.field_name, masterType).toLowerCase();
+            const fLower = field.toLowerCase();
+            return tName === fLower || dName === fLower || m.field_name.toLowerCase() === fLower;
+          });
+          if (mapping) {
+            if (mapping.mapping_type === 'Fixed Values' && mapping.fixed_value) {
+              mVal = normalizeVal(mapping.fixed_value);
+            } else if (mapping.mapping_type === 'Based on User Input' && mapping.source_field) {
+              mVal = normalizeVal(record[mapping.source_field]);
+            }
+          }
+        }
+        
+        if (mVal && mVal !== '*' && !mVal.includes(',') && !mVal.includes(';') && !mVal.includes('/')) {
+           combo[field] = mVal;
+        } else {
+           combo[field] = normalizeVal(rule[field]);
+        }
+      });
+      
+      const comboKey = JSON.stringify(combo);
+      if (!uniqueCombinations.has(comboKey)) {
+        uniqueCombinations.add(comboKey);
+        combinationObjects.push(combo);
+      }
+    });
+
+    // 3. Emit expanded records for each unique combination
+    combinationObjects.forEach(combo => {
+      expandedRecords.push({ ...record, ...combo });
+    });
   });
 
   return expandedRecords;
@@ -122,7 +184,7 @@ export async function generateXmlPayload(
   }
 
   // 2. Expand raw records using '*' wildcard logic for Plant, Distribution Channel, Division
-  const expandedRecords = expandRawRecords(masterType, savedRules, uploadedRecords);
+  const expandedRecords = expandRawRecords(masterType, savedRules, uploadedRecords, allMappings);
 
   // 3. Build final_sap_data structure
   const finalSapData: Record<string, Record<string, string>[]> = {};
@@ -160,7 +222,24 @@ export async function generateXmlPayload(
       let isMatch = true;
       for (const key of ruleKeys) {
         const rVal = normalizeVal(rule[key]);
-        const mVal = normalizeVal(material[key]);
+        
+        let mVal = normalizeVal(material[key]);
+        if (!mVal && allMappings.length > 0) {
+          const mapping = allMappings.find(m => {
+            const tName = getTechnicalFieldName(m.field_name, masterType).toLowerCase();
+            const dName = getFieldDescription(m.field_name, masterType).toLowerCase();
+            const fLower = key.toLowerCase();
+            return tName === fLower || dName === fLower || m.field_name.toLowerCase() === fLower;
+          });
+          if (mapping) {
+            if (mapping.mapping_type === 'Fixed Values' && mapping.fixed_value) {
+              mVal = normalizeVal(mapping.fixed_value);
+            } else if (mapping.mapping_type === 'Based on User Input' && mapping.source_field) {
+              mVal = normalizeVal(material[mapping.source_field]);
+            }
+          }
+        }
+        
         // '*' or empty value in rule (rVal) OR in input material (mVal) matches ANY value
         if (
           rVal &&

@@ -102,7 +102,7 @@ export const XmlGenerationTab: React.FC = () => {
         const data = XLSX.utils.sheet_to_json<Record<string, any>>(ws, { defval: '' });
 
         setUploadedRecords(data);
-        const expanded = expandRawRecords(selectedMaster, savedRules, data);
+        const expanded = expandRawRecords(selectedMaster, savedRules, data, allMappings);
         setExpandedCount(expanded.length);
         setGeneratedXml(null);
         setDuplicateResult(null);
@@ -193,7 +193,7 @@ export const XmlGenerationTab: React.FC = () => {
         plantSLocMappings
       );
 
-      const expanded = expandRawRecords(selectedMaster, savedRules, records);
+      const expanded = expandRawRecords(selectedMaster, savedRules, records, allMappings);
       setExpandedCount(expanded.length);
       setGeneratedXml(xmlResult);
       setExecuting(false);
