@@ -34,14 +34,7 @@ export function expandRawRecords(
   savedRules: FixedRuleRecord[],
   uploadedRecords: Record<string, any>[]
 ): Record<string, any>[] {
-  let expandableFields: string[] = [];
-  if (masterType === 'Material Master') {
-    expandableFields = ['Plant', 'Distribution Channel'];
-  } else if (masterType === 'Customer Master') {
-    expandableFields = ['Distribution Channel', 'Division'];
-  } else if (masterType === 'Vendor Master') {
-    expandableFields = ['Purchasing Organization', 'Company Code'];
-  }
+  let expandableFields: string[] = MASTER_CONFIGS[masterType]?.ruleKeys || [];
 
   // Extract unique distinct non-wildcard values from savedRules for each expandable field
   const uniqueValuesMap: Record<string, string[]> = {};
@@ -357,10 +350,14 @@ export async function generateXmlPayload(
   if (masterType === 'Material Master') {
     for (const sheetName of Object.keys(finalSapData)) {
       finalSapData[sheetName].forEach((row) => {
-        const plantVal = (row['WERKS'] || row['Plant'] || row['Valuation Area'] || row['BWKEY'] || '').trim();
-        if (plantVal) {
-          if (!row['BWKEY']) row['BWKEY'] = plantVal;
-          if (!row['Valuation Area']) row['Valuation Area'] = plantVal;
+        const plantVal = (row['WERKS'] || row['Plant'] || '').trim();
+        const currentBwkey = (row['BWKEY'] || row['Valuation Area'] || '').trim();
+
+        if (plantVal && plantVal !== '*') {
+          if (!currentBwkey || currentBwkey === '*') {
+            row['BWKEY'] = plantVal;
+            row['Valuation Area'] = plantVal;
+          }
         }
       });
     }
