@@ -420,12 +420,18 @@ export async function generateXmlPayload(
               const newRow = { ...row };
               newRow['LGORT'] = slocCode;
               newRow['Storage Location'] = slocCode;
+              newRow['WERKS'] = plantVal;
+              newRow['Plant'] = plantVal;
               expandedSLocRows.push(newRow);
             });
           } else {
+            row['WERKS'] = plantVal;
+            row['Plant'] = plantVal;
             expandedSLocRows.push(row);
           }
         } else {
+          row['WERKS'] = plantVal;
+          row['Plant'] = plantVal;
           expandedSLocRows.push(row);
         }
       });
@@ -439,9 +445,12 @@ export async function generateXmlPayload(
     for (const sheetName of Object.keys(finalSapData)) {
       finalSapData[sheetName].forEach((row) => {
         const plantVal = (row['WERKS'] || row['Plant'] || row['__GLOBAL_PLANT'] || '').trim();
-        const currentBwkey = (row['BWKEY'] || row['Valuation Area'] || '').trim();
 
         if (plantVal && plantVal !== '*') {
+          row['WERKS'] = plantVal;
+          row['Plant'] = plantVal;
+          
+          const currentBwkey = (row['BWKEY'] || row['Valuation Area'] || '').trim();
           if (!currentBwkey || currentBwkey === '*') {
             row['BWKEY'] = plantVal;
             row['Valuation Area'] = plantVal;
