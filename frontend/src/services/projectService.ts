@@ -121,6 +121,36 @@ export async function revokePermission(permissionId: string): Promise<boolean> {
   return !error;
 }
 
+export async function isProjectMasterLockedAsync(projectName: string, masterType: MasterType): Promise<boolean> {
+  if (!projectName || !masterType) return false;
+  try {
+    const pName = projectName.trim();
+    const mType = masterType.trim();
+
+    const { data: lockRows } = await supabase
+      .from('project_fixed_rules')
+      .select('rule_data')
+      .eq('project_name', pName)
+      .eq('master_type', '__LOCK__')
+      .limit(1);
+
+    if (lockRows && lockRows.length > 0) {
+      const ruleData = lockRows[0].rule_data || {};
+      if (ruleData[mType] !== undefined) {
+        const isLocked = Boolean(ruleData[mType]);
+        try {
+          localStorage.setItem(`project_lock_${pName}__${mType}`, isLocked ? 'true' : 'false');
+          window.dispatchEvent(new Event('project_lock_updated'));
+        } catch (e) {}
+        return isLocked;
+      }
+    }
+  } catch (e) {
+    console.warn('Error querying lock status from Supabase:', e);
+  }
+  return isProjectMasterLocked(projectName, masterType);
+}
+
 export function isProjectMasterLocked(projectName: string, masterType: MasterType): boolean {
   if (!projectName || !masterType) return false;
   try {

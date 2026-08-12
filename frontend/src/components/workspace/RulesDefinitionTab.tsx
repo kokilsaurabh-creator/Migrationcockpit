@@ -442,7 +442,7 @@ export const RulesDefinitionTab: React.FC = () => {
   };
 
   const handleDeleteAllRules = async () => {
-    if (!currentProject || isLocked) return;
+    if (!currentProject) return;
 
     if (
       window.confirm(
@@ -461,20 +461,17 @@ export const RulesDefinitionTab: React.FC = () => {
           msg: `Successfully deleted all rules for '${currentProject}' (${selectedMaster})!`
         });
       } else {
-        setToast({ type: 'error', msg: 'Failed to delete rules from database.' });
+        setIsLocked(true);
+        setToast({
+          type: 'error',
+          msg: `Project '${currentProject}' is locked by Admin for '${selectedMaster}'. Changes cannot be saved.`
+        });
       }
     }
   };
 
   const handleSaveRules = async () => {
     if (!currentProject) return;
-    if (isLocked) {
-      setToast({
-        type: 'error',
-        msg: `Project '${currentProject}' is LOCKED by Admin. Unlock the project in Admin Panel to commit rule changes.`
-      });
-      return;
-    }
 
     setSaving(true);
     setProgress(0);
@@ -490,7 +487,11 @@ export const RulesDefinitionTab: React.FC = () => {
     if (ok) {
       setToast({ type: 'success', msg: `Successfully saved ${ruleRecords.length.toLocaleString()} rule mappings to database!` });
     } else {
-      setToast({ type: 'error', msg: 'Error saving rules to database.' });
+      setIsLocked(true);
+      setToast({
+        type: 'error',
+        msg: `Project '${currentProject}' is locked by Admin for '${selectedMaster}'. Changes cannot be saved.`
+      });
     }
   };
 

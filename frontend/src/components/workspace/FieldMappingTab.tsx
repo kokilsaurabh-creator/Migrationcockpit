@@ -255,13 +255,6 @@ export const FieldMappingTab: React.FC = () => {
 
   const handleSaveAll = async () => {
     if (!currentProject || !selectedView) return;
-    if (isLocked) {
-      setToast({
-        type: 'error',
-        msg: `Project '${currentProject}' is LOCKED by Admin. Unlock the project in Admin Panel to commit mapping changes.`
-      });
-      return;
-    }
 
     const fieldsInView = schema[selectedView] || [];
     const changedFields = fieldsInView.filter((f) => dirtyFields.has(f.field_name));
@@ -301,9 +294,12 @@ export const FieldMappingTab: React.FC = () => {
       // Refresh saved mappings from DB
       fetchMappingsForProject(currentProject, selectedMaster).then(setSavedMappings);
     } else {
+      if (result.error && result.error.includes('locked')) {
+        setIsLocked(true);
+      }
       setToast({
         type: 'error',
-        msg: result.error ? `Failed to save field mappings: ${result.error}` : 'Failed to save field mappings.'
+        msg: result.error || 'Failed to save field mappings.'
       });
     }
   };

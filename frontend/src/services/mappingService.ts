@@ -2,7 +2,7 @@
 import { supabase } from './supabaseClient';
 import { FieldMapping, MappingType, MasterType } from '../types';
 import { getLegacyViewInfo, getTechnicalFieldName, isFieldInMasterSchema } from '../utils/schemaLoader';
-import { isProjectMasterLocked } from './projectService';
+import { isProjectMasterLocked, isProjectMasterLockedAsync } from './projectService';
 
 export async function fetchMappingsForProject(
   projectName: string,
@@ -66,10 +66,11 @@ export async function saveMappingsBatch(
 ): Promise<{ count: number; error?: string }> {
   if (!projectName || !viewName || items.length === 0) return { count: 0 };
   
-  if (isProjectMasterLocked(projectName, masterType)) {
+  const isLocked = await isProjectMasterLockedAsync(projectName, masterType);
+  if (isLocked) {
     return {
       count: 0,
-      error: `Project '${projectName}' is locked for '${masterType}'. Changes cannot be saved.`
+      error: `Project '${projectName}' is locked by Admin for '${masterType}'. Changes cannot be saved.`
     };
   }
 

@@ -2,7 +2,7 @@
 import { supabase } from './supabaseClient';
 import { FixedRuleRecord, MasterType } from '../types';
 import { isKeyInMaster } from '../utils/schemaLoader';
-import { isProjectMasterLocked } from './projectService';
+import { isProjectMasterLocked, isProjectMasterLockedAsync } from './projectService';
 
 export async function fetchProjectRules(projectName: string, masterType: MasterType): Promise<FixedRuleRecord[]> {
   try {
@@ -61,8 +61,9 @@ export async function saveProjectRules(
   records: FixedRuleRecord[],
   onProgress?: (ratio: number) => void
 ): Promise<boolean> {
-  if (isProjectMasterLocked(projectName, masterType)) {
-    console.warn(`Project '${projectName}' is locked for '${masterType}'. Rule changes cannot be saved.`);
+  const isLocked = await isProjectMasterLockedAsync(projectName, masterType);
+  if (isLocked) {
+    console.warn(`Project '${projectName}' is locked by Admin for '${masterType}'. Rule changes cannot be saved.`);
     return false;
   }
 
