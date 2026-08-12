@@ -51,6 +51,50 @@ function expandSingleRecordFallback(record: Record<string, any>, fields: string[
   return currentBatch;
 }
 
+function getRecordVal(
+  record: Record<string, any>,
+  field: string,
+  masterType: MasterType,
+  mappingLookup: Map<string, FieldMapping>
+): string {
+  let val = normalizeVal(record[field]);
+  if (val) return val;
+
+  const tech = getTechnicalFieldName(field, masterType);
+  if (tech && record[tech] !== undefined) {
+    val = normalizeVal(record[tech]);
+    if (val) return val;
+  }
+
+  const desc = getFieldDescription(field, masterType);
+  if (desc && record[desc] !== undefined) {
+    val = normalizeVal(record[desc]);
+    if (val) return val;
+  }
+
+  const fLower = field.toLowerCase().trim();
+  for (const k of Object.keys(record)) {
+    if (k.toLowerCase().trim() === fLower) {
+      val = normalizeVal(record[k]);
+      if (val) return val;
+    }
+  }
+
+  // Fallback to field_mappings
+  if (mappingLookup.size > 0) {
+    const mapping = mappingLookup.get(fLower) || (tech ? mappingLookup.get(tech.toLowerCase()) : undefined) || (desc ? mappingLookup.get(desc.toLowerCase()) : undefined);
+    if (mapping) {
+      if (mapping.mapping_type === 'Fixed Values' && mapping.fixed_value) {
+        return normalizeVal(mapping.fixed_value);
+      } else if (mapping.mapping_type === 'Based on User Input' && mapping.source_field) {
+        return normalizeVal(record[mapping.source_field]);
+      }
+    }
+  }
+
+  return '';
+}
+
 export function expandRawRecords(
   masterType: MasterType,
   savedRules: FixedRuleRecord[],
@@ -59,11 +103,22 @@ export function expandRawRecords(
 ): Record<string, any>[] {
   const expandableFields: string[] = MASTER_CONFIGS[masterType]?.ruleKeys || [];
 
-  if (expandableFields.length === 0 || savedRules.length === 0) {
+  if (expandableFields.length === 0 || savedRules.length === 0 || uploadedRecords.length === 0) {
     const result: Record<string, any>[] = [];
     uploadedRecords.forEach((r, idx) => result.push(...expandSingleRecordFallback({ ...r, _originalIndex: idx }, expandableFields)));
     return result;
   }
+
+  // Pre-build mapping lookup map O(1)
+  const mappingLookup = new Map<string, FieldMapping>();
+  allMappings.forEach((m) => {
+    const tName = getTechnicalFieldName(m.field_name, masterType).toLowerCase();
+    const dName = getFieldDescription(m.field_name, masterType).toLowerCase();
+    const fName = m.field_name.toLowerCase();
+    if (!mappingLookup.has(tName)) mappingLookup.set(tName, m);
+    if (!mappingLookup.has(dName)) mappingLookup.set(dName, m);
+    if (!mappingLookup.has(fName)) mappingLookup.set(fName, m);
+  });
 
   const expandedRecords: Record<string, any>[] = [];
 
@@ -72,30 +127,14 @@ export function expandRawRecords(
     const compatibleRules = savedRules.filter((rule) => {
       return expandableFields.every((field) => {
         const rVal = normalizeVal(rule[field]);
-        
-        let mVal = normalizeVal(record[field]);
-        if (!mVal && allMappings.length > 0) {
-          const mapping = allMappings.find(m => {
-            const tName = getTechnicalFieldName(m.field_name, masterType).toLowerCase();
-            const dName = getFieldDescription(m.field_name, masterType).toLowerCase();
-            const fLower = field.toLowerCase();
-            return tName === fLower || dName === fLower || m.field_name.toLowerCase() === fLower;
-          });
-          if (mapping) {
-            if (mapping.mapping_type === 'Fixed Values' && mapping.fixed_value) {
-              mVal = normalizeVal(mapping.fixed_value);
-            } else if (mapping.mapping_type === 'Based on User Input' && mapping.source_field) {
-              mVal = normalizeVal(record[mapping.source_field]);
-            }
-          }
-        }
+        const mVal = getRecordVal(record, field, masterType, mappingLookup);
         
         if (!rVal || rVal === '*') return true; // Rule allows anything
         if (!mVal || mVal === '*') return true; // Record allows anything
         
         // Check if mVal is a comma-separated list containing rVal
         if (mVal.includes(',') || mVal.includes(';') || mVal.includes('/')) {
-           const splitVals = mVal.split(/[,;/]+/).map(s => s.trim().toLowerCase());
+           const splitVals = mVal.split(/[,;/]+/).map((s) => s.trim().toLowerCase());
            if (splitVals.includes(rVal.toLowerCase())) return true;
         }
 
@@ -112,25 +151,10 @@ export function expandRawRecords(
     const uniqueCombinations = new Set<string>();
     const combinationObjects: Record<string, string>[] = [];
 
-    compatibleRules.forEach(rule => {
+    compatibleRules.forEach((rule) => {
       const combo: Record<string, string> = {};
-      expandableFields.forEach(field => {
-        let mVal = normalizeVal(record[field]);
-        if (!mVal && allMappings.length > 0) {
-          const mapping = allMappings.find(m => {
-            const tName = getTechnicalFieldName(m.field_name, masterType).toLowerCase();
-            const dName = getFieldDescription(m.field_name, masterType).toLowerCase();
-            const fLower = field.toLowerCase();
-            return tName === fLower || dName === fLower || m.field_name.toLowerCase() === fLower;
-          });
-          if (mapping) {
-            if (mapping.mapping_type === 'Fixed Values' && mapping.fixed_value) {
-              mVal = normalizeVal(mapping.fixed_value);
-            } else if (mapping.mapping_type === 'Based on User Input' && mapping.source_field) {
-              mVal = normalizeVal(record[mapping.source_field]);
-            }
-          }
-        }
+      expandableFields.forEach((field) => {
+        const mVal = getRecordVal(record, field, masterType, mappingLookup);
         
         if (mVal && mVal !== '*' && !mVal.includes(',') && !mVal.includes(';') && !mVal.includes('/')) {
            combo[field] = mVal;
@@ -147,13 +171,14 @@ export function expandRawRecords(
     });
 
     // 3. Emit expanded records for each unique combination
-    combinationObjects.forEach(combo => {
+    combinationObjects.forEach((combo) => {
       expandedRecords.push({ ...record, ...combo, _originalIndex: idx });
     });
   });
 
   return expandedRecords;
 }
+
 
 export async function generateXmlPayload(
   masterType: MasterType,
@@ -221,30 +246,14 @@ export async function generateXmlPayload(
     return bScore - aScore; // Descending order
   });
 
-  expandedRecords.forEach((material, matIndex) => {
+    expandedRecords.forEach((material, matIndex) => {
     // Find matching rule with wildcard '*' support (in both saved rules AND raw material input)
     let matchedRule: FixedRuleRecord = {};
     for (const rule of sortedRules) {
       let isMatch = true;
       for (const key of ruleKeys) {
         const rVal = normalizeVal(rule[key]);
-        
-        let mVal = normalizeVal(material[key]);
-        if (!mVal && allMappings.length > 0) {
-          const mapping = allMappings.find(m => {
-            const tName = getTechnicalFieldName(m.field_name, masterType).toLowerCase();
-            const dName = getFieldDescription(m.field_name, masterType).toLowerCase();
-            const fLower = key.toLowerCase();
-            return tName === fLower || dName === fLower || m.field_name.toLowerCase() === fLower;
-          });
-          if (mapping) {
-            if (mapping.mapping_type === 'Fixed Values' && mapping.fixed_value) {
-              mVal = normalizeVal(mapping.fixed_value);
-            } else if (mapping.mapping_type === 'Based on User Input' && mapping.source_field) {
-              mVal = normalizeVal(material[mapping.source_field]);
-            }
-          }
-        }
+        const mVal = getRecordVal(material, key, masterType, mappingLookup);
         
         // '*' or empty value in rule (rVal) OR in input material (mVal) matches ANY value
         if (
@@ -263,6 +272,7 @@ export async function generateXmlPayload(
         break;
       }
     }
+
 
     // Determine primary key value for this record
     const pkVal =

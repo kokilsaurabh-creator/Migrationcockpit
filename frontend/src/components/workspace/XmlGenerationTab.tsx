@@ -45,7 +45,7 @@ export const XmlGenerationTab: React.FC = () => {
     setLoading(true);
 
     Promise.all([
-      fetchMappingsForProject(currentProject),
+      fetchMappingsForProject(currentProject, selectedMaster),
       fetchProjectRules(currentProject, selectedMaster)
     ]).then(([mappings, rules]) => {
       setAllMappings(mappings);
