@@ -51,6 +51,7 @@ export const MASTER_CONFIGS: Record<MasterType, MasterConfig> = {
       'Customer Name',
       'BP Grouping',
       'Customer Account Group',
+      'BP Type',
       'Company Code',
       'Sales Organization',
       'Distribution Channel',
@@ -59,6 +60,7 @@ export const MASTER_CONFIGS: Record<MasterType, MasterConfig> = {
     ruleKeys: [
       'BP Grouping',
       'Customer Account Group',
+      'BP Type',
       'Company Code',
       'Sales Organization',
       'Distribution Channel',

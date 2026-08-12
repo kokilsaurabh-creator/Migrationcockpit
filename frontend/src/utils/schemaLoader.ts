@@ -105,7 +105,7 @@ export function isKeyInMaster(key: string, masterType: MasterType): boolean {
     const matCustom = ['producttype', 'productgroup', 'plant', 'salesorganization', 'distributionchannel', 'valuationclass', 'valuationcategory', 'division', 'accountassignmentgroup', 'profitcenter', 'indicatorbatchmanagementreq', 'indicatorbatchmanagementrequired', 'bklas', 'bwtty', 'spart', 'ktgrm', 'prctr', 'xchpf'];
     if (matCustom.includes(clean)) return true;
   } else if (masterType === 'Customer Master') {
-    const custCustom = ['bpgrouping', 'customeraccountgroup', 'companycode', 'salesorganization', 'distributionchannel', 'division', 'reconciliationaccount', 'akont', 'spart'];
+    const custCustom = ['bpgrouping', 'customeraccountgroup', 'bptype', 'bp_type', 'bp type', 'companycode', 'salesorganization', 'distributionchannel', 'division', 'reconciliationaccount', 'akont', 'spart'];
     if (custCustom.includes(clean)) return true;
   } else if (masterType === 'Vendor Master') {
     const venCustom = ['bpgrouping', 'vendoraccountgroup', 'companycode', 'purchasingorganization', 'reconciliationaccount', 'akont'];
