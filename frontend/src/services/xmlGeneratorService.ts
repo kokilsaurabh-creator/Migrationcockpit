@@ -239,12 +239,24 @@ export async function generateXmlPayload(
 
   const activeMappings = Array.from(mappingMap.values());
 
+  // Pre-build mapping lookup map O(1)
+  const mappingLookup = new Map<string, FieldMapping>();
+  allMappings.forEach((m) => {
+    const tName = getTechnicalFieldName(m.field_name, masterType).toLowerCase();
+    const dName = getFieldDescription(m.field_name, masterType).toLowerCase();
+    const fName = m.field_name.toLowerCase();
+    if (!mappingLookup.has(tName)) mappingLookup.set(tName, m);
+    if (!mappingLookup.has(dName)) mappingLookup.set(dName, m);
+    if (!mappingLookup.has(fName)) mappingLookup.set(fName, m);
+  });
+
   // Sort rules by specificity (fewer wildcards = higher priority)
   const sortedRules = [...savedRules].sort((a, b) => {
     const aScore = ruleKeys.filter((k) => a[k] && a[k] !== '*').length;
     const bScore = ruleKeys.filter((k) => b[k] && b[k] !== '*').length;
     return bScore - aScore; // Descending order
   });
+
 
     expandedRecords.forEach((material, matIndex) => {
     // Find matching rule with wildcard '*' support (in both saved rules AND raw material input)
