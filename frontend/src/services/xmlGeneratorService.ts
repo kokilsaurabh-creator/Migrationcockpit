@@ -202,9 +202,32 @@ export function expandRawRecords(
       }
     });
 
-    // 3. Emit expanded records for each unique combination
+    // 3. Emit expanded records for each unique combination with fully derived values replacing '*'
     combinationObjects.forEach((combo) => {
-      expandedRecords.push({ ...record, ...combo, _originalIndex: idx });
+      const derivedRecord: Record<string, any> = { ...record, _originalIndex: idx };
+
+      Object.keys(combo).forEach((field) => {
+        const derivedVal = combo[field];
+        if (derivedVal) {
+          derivedRecord[field] = derivedVal;
+
+          const tech = getTechnicalFieldName(field, masterType);
+          if (tech) derivedRecord[tech] = derivedVal;
+
+          const desc = getFieldDescription(field, masterType);
+          if (desc) derivedRecord[desc] = derivedVal;
+
+          // Replace any case variant in record that was '*' or empty
+          const fLower = field.toLowerCase().trim();
+          Object.keys(derivedRecord).forEach((k) => {
+            if (k.toLowerCase().trim() === fLower) {
+              derivedRecord[k] = derivedVal;
+            }
+          });
+        }
+      });
+
+      expandedRecords.push(derivedRecord);
     });
   });
 
