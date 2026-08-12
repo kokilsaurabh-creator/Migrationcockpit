@@ -51,6 +51,38 @@ function expandSingleRecordFallback(record: Record<string, any>, fields: string[
   return currentBatch;
 }
 
+function getRuleVal(
+  rule: FixedRuleRecord,
+  field: string,
+  masterType: MasterType
+): string {
+  if (!rule) return '';
+  let val = normalizeVal(rule[field]);
+  if (val) return val;
+
+  const tech = getTechnicalFieldName(field, masterType);
+  if (tech && rule[tech] !== undefined) {
+    val = normalizeVal(rule[tech]);
+    if (val) return val;
+  }
+
+  const desc = getFieldDescription(field, masterType);
+  if (desc && rule[desc] !== undefined) {
+    val = normalizeVal(rule[desc]);
+    if (val) return val;
+  }
+
+  const fLower = field.toLowerCase().trim();
+  for (const k of Object.keys(rule)) {
+    if (k.toLowerCase().trim() === fLower) {
+      val = normalizeVal(rule[k]);
+      if (val) return val;
+    }
+  }
+
+  return '';
+}
+
 function getRecordVal(
   record: Record<string, any>,
   field: string,
@@ -126,7 +158,7 @@ export function expandRawRecords(
     // 1. Find compatible rules for this specific record
     const compatibleRules = savedRules.filter((rule) => {
       return expandableFields.every((field) => {
-        const rVal = normalizeVal(rule[field]);
+        const rVal = getRuleVal(rule, field, masterType);
         const mVal = getRecordVal(record, field, masterType, mappingLookup);
         
         if (!rVal || rVal === '*') return true; // Rule allows anything
@@ -159,7 +191,7 @@ export function expandRawRecords(
         if (mVal && mVal !== '*' && !mVal.includes(',') && !mVal.includes(';') && !mVal.includes('/')) {
            combo[field] = mVal;
         } else {
-           combo[field] = normalizeVal(rule[field]);
+           combo[field] = getRuleVal(rule, field, masterType);
         }
       });
       
@@ -264,7 +296,7 @@ export async function generateXmlPayload(
     for (const rule of sortedRules) {
       let isMatch = true;
       for (const key of ruleKeys) {
-        const rVal = normalizeVal(rule[key]);
+        const rVal = getRuleVal(rule, key, masterType);
         const mVal = getRecordVal(material, key, masterType, mappingLookup);
         
         // '*' or empty value in rule (rVal) OR in input material (mVal) matches ANY value
@@ -698,7 +730,7 @@ export function validateXmlPayload(
       for (const rule of sortedRules) {
         let isMatch = true;
         for (const key of ruleKeys) {
-          const rVal = normalizeVal(rule[key]);
+          const rVal = getRuleVal(rule, key, masterType);
           const mVal = getRecordVal(record, key, masterType, mappingLookup);
           
           if (
@@ -720,48 +752,22 @@ export function validateXmlPayload(
     }
 
     // Check non-key target fields mapped as 'Based on Fixed Rules'
-    if (matchedRule && Object.keys(matchedRule).length > 0) {
-      nonKeyFixedRuleMappings.forEach((mapConfig) => {
-        const fieldName = mapConfig.field_name;
-        const techName = getTechnicalFieldName(fieldName, masterType);
-        const descName = getFieldDescription(fieldName, masterType);
+    nonKeyFixedRuleMappings.forEach((mapConfig) => {
+      const fieldName = mapConfig.field_name;
+      const techName = getTechnicalFieldName(fieldName, masterType);
+      const descName = getFieldDescription(fieldName, masterType);
 
-        let valFromRule =
-          normalizeVal(matchedRule![fieldName]) ||
-          normalizeVal(matchedRule![techName]) ||
-          normalizeVal(matchedRule![descName]);
+      const valFromRule = matchedRule ? getRuleVal(matchedRule, fieldName, masterType) : '';
 
-        if (!valFromRule) {
-          const targetKeys = [fieldName, techName, descName]
-            .filter(Boolean)
-            .map((k) => k.toLowerCase().trim());
-
-          for (const rKey of Object.keys(matchedRule!)) {
-            if (targetKeys.includes(rKey.toLowerCase().trim())) {
-              valFromRule = normalizeVal(matchedRule![rKey]);
-              if (valFromRule) break;
-            }
-          }
-        }
-
-        if (!valFromRule) {
-          exceptions.push({
-            rowIndex,
-            fieldName: descName || techName || fieldName,
-            expectedRule: 'Based on Fixed Rules',
-            currentValue: 'Missing fixed value'
-          });
-        }
-      });
-    } else if (savedRules.length > 0 && nonKeyFixedRuleMappings.length > 0) {
-      // If rules exist but no rule match was found for the input key fields
-      exceptions.push({
-        rowIndex,
-        fieldName: 'Rule Condition Keys',
-        expectedRule: 'Matching Fixed Rule Matrix Row',
-        currentValue: 'No matching rule row found for key fields'
-      });
-    }
+      if (!valFromRule) {
+        exceptions.push({
+          rowIndex,
+          fieldName: descName || techName || fieldName,
+          expectedRule: 'Based on Fixed Rules',
+          currentValue: 'Missing fixed value'
+        });
+      }
+    });
   });
 
   const deduped: GenerationException[] = [];
