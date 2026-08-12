@@ -625,6 +625,16 @@ export function validateXmlPayload(
   const exceptions: GenerationException[] = [];
   const ruleKeys = MASTER_CONFIGS[masterType]?.ruleKeys || [];
   
+  // Set of normalized Key Fields to exclude them from being checked as target fields
+  const keyFieldsSet = new Set<string>();
+  ruleKeys.forEach((k) => {
+    keyFieldsSet.add(k.toLowerCase().trim());
+    const tech = getTechnicalFieldName(k, masterType);
+    if (tech) keyFieldsSet.add(tech.toLowerCase().trim());
+    const desc = getFieldDescription(k, masterType);
+    if (desc) keyFieldsSet.add(desc.toLowerCase().trim());
+  });
+
   const expandedRecords = expandRawRecords(masterType, savedRules, uploadedRecords, allMappings);
   
   const validMasterDbViews = Object.keys(schema).map((view) =>
@@ -650,81 +660,108 @@ export function validateXmlPayload(
   });
 
   const activeMappings = Array.from(mappingMap.values());
-  const fixedRuleMappings = activeMappings.filter(m => m.mapping_type === 'Based on Fixed Rules');
   
-  if (fixedRuleMappings.length === 0) return exceptions;
+  // Filter mappings to ONLY non-key target fields configured as 'Based on Fixed Rules'
+  const nonKeyFixedRuleMappings = activeMappings.filter((m) => {
+    if (m.mapping_type !== 'Based on Fixed Rules') return false;
+    const fTech = getTechnicalFieldName(m.field_name, masterType).toLowerCase().trim();
+    const fDesc = getFieldDescription(m.field_name, masterType).toLowerCase().trim();
+    const fRaw = m.field_name.toLowerCase().trim();
 
-  expandedRecords.forEach((material) => {
-    let matchedRule: FixedRuleRecord = {};
-    for (const rule of savedRules) {
-      let isMatch = true;
-      for (const key of ruleKeys) {
-        const rVal = normalizeVal(rule[key]);
-        
-        let mVal = normalizeVal(material[key]);
-        if (!mVal && allMappings.length > 0) {
-          const mapping = allMappings.find(m => {
-            const tName = getTechnicalFieldName(m.field_name, masterType).toLowerCase();
-            const dName = getFieldDescription(m.field_name, masterType).toLowerCase();
-            const fLower = key.toLowerCase();
-            return tName === fLower || dName === fLower || m.field_name.toLowerCase() === fLower;
-          });
-          if (mapping) {
-            if (mapping.mapping_type === 'Fixed Values' && mapping.fixed_value) {
-              mVal = normalizeVal(mapping.fixed_value);
-            } else if (mapping.mapping_type === 'Based on User Input' && mapping.source_field) {
-              mVal = normalizeVal(material[mapping.source_field]);
-            }
+    return !keyFieldsSet.has(fTech) && !keyFieldsSet.has(fDesc) && !keyFieldsSet.has(fRaw);
+  });
+
+  // Pre-build O(1) mapping lookup map
+  const mappingLookup = new Map<string, FieldMapping>();
+  allMappings.forEach((m) => {
+    const tName = getTechnicalFieldName(m.field_name, masterType).toLowerCase();
+    const dName = getFieldDescription(m.field_name, masterType).toLowerCase();
+    const fName = m.field_name.toLowerCase();
+    if (!mappingLookup.has(tName)) mappingLookup.set(tName, m);
+    if (!mappingLookup.has(dName)) mappingLookup.set(dName, m);
+    if (!mappingLookup.has(fName)) mappingLookup.set(fName, m);
+  });
+
+  // Sort rules by specificity (fewer wildcards = higher priority)
+  const sortedRules = [...savedRules].sort((a, b) => {
+    const aScore = ruleKeys.filter((k) => a[k] && a[k] !== '*').length;
+    const bScore = ruleKeys.filter((k) => b[k] && b[k] !== '*').length;
+    return bScore - aScore;
+  });
+
+  expandedRecords.forEach((record) => {
+    const rowIndex = record._originalIndex ?? 0;
+
+    // Find matching rule with wildcard '*' support for the key fields
+    let matchedRule: FixedRuleRecord | null = null;
+    if (sortedRules.length > 0) {
+      for (const rule of sortedRules) {
+        let isMatch = true;
+        for (const key of ruleKeys) {
+          const rVal = normalizeVal(rule[key]);
+          const mVal = getRecordVal(record, key, masterType, mappingLookup);
+          
+          if (
+            rVal &&
+            rVal !== '*' &&
+            mVal &&
+            mVal !== '*' &&
+            rVal.toLowerCase() !== mVal.toLowerCase()
+          ) {
+            isMatch = false;
+            break;
           }
         }
-        
-        if (
-          rVal &&
-          rVal !== '*' &&
-          mVal &&
-          mVal !== '*' &&
-          rVal.toLowerCase() !== mVal.toLowerCase()
-        ) {
-          isMatch = false;
+        if (isMatch) {
+          matchedRule = rule;
           break;
         }
       }
-      if (isMatch) {
-        matchedRule = rule;
-        break;
-      }
     }
 
-    const rowIndex = material._originalIndex ?? 0;
-    
-    const keyFields = masterType === 'Material Master' 
-      ? ['PRODUCT TYPE', 'PRODUCT GROUP', 'PLANT', 'DISTRIBUTION CHANNEL', 'SALES ORGANIZATION']
-      : ['ACCOUNT GROUP', 'BP GROUP', 'BP TYPE'];
+    // Check non-key target fields mapped as 'Based on Fixed Rules'
+    if (matchedRule && Object.keys(matchedRule).length > 0) {
+      nonKeyFixedRuleMappings.forEach((mapConfig) => {
+        const fieldName = mapConfig.field_name;
+        const techName = getTechnicalFieldName(fieldName, masterType);
+        const descName = getFieldDescription(fieldName, masterType);
 
-    keyFields.forEach((keyField) => {
-       let isMissing = true;
-       if (matchedRule && Object.keys(matchedRule).length > 0) {
-          for (const rKey of Object.keys(matchedRule)) {
-            const cleanRKey = rKey.toUpperCase().trim();
-            const techName = getTechnicalFieldName(cleanRKey, masterType).toUpperCase();
-            const descStr = getFieldDescription(cleanRKey, masterType).toUpperCase();
-            
-            if (cleanRKey === keyField || techName === keyField || descStr === keyField) {
-              isMissing = false;
-              break;
+        let valFromRule =
+          normalizeVal(matchedRule![fieldName]) ||
+          normalizeVal(matchedRule![techName]) ||
+          normalizeVal(matchedRule![descName]);
+
+        if (!valFromRule) {
+          const targetKeys = [fieldName, techName, descName]
+            .filter(Boolean)
+            .map((k) => k.toLowerCase().trim());
+
+          for (const rKey of Object.keys(matchedRule!)) {
+            if (targetKeys.includes(rKey.toLowerCase().trim())) {
+              valFromRule = normalizeVal(matchedRule![rKey]);
+              if (valFromRule) break;
             }
           }
-       }
-       
-       if (isMissing) {
+        }
+
+        if (!valFromRule) {
           exceptions.push({
             rowIndex,
-            fieldName: keyField,
+            fieldName: descName || techName || fieldName,
             expectedRule: 'Based on Fixed Rules',
-            currentValue: ''
+            currentValue: 'Missing fixed value'
           });
-       }
-    });
+        }
+      });
+    } else if (savedRules.length > 0 && nonKeyFixedRuleMappings.length > 0) {
+      // If rules exist but no rule match was found for the input key fields
+      exceptions.push({
+        rowIndex,
+        fieldName: 'Rule Condition Keys',
+        expectedRule: 'Matching Fixed Rule Matrix Row',
+        currentValue: 'No matching rule row found for key fields'
+      });
+    }
   });
 
   const deduped: GenerationException[] = [];
@@ -739,3 +776,4 @@ export function validateXmlPayload(
 
   return deduped;
 }
+
