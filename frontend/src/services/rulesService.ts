@@ -1,6 +1,7 @@
 // frontend/src/services/rulesService.ts
 import { supabase } from './supabaseClient';
 import { FixedRuleRecord, MasterType } from '../types';
+import { isKeyInMaster } from '../utils/schemaLoader';
 
 export async function fetchProjectRules(projectName: string, masterType: MasterType): Promise<FixedRuleRecord[]> {
   try {
@@ -30,11 +31,19 @@ export async function fetchProjectRules(projectName: string, masterType: MasterT
 
     return allData.map((r: any) => {
       const ruleObj = r.rule_data || {};
+      const cleanRuleObj: Record<string, any> = {};
+
+      for (const k of Object.keys(ruleObj)) {
+        if (isKeyInMaster(k, masterType)) {
+          cleanRuleObj[k] = ruleObj[k];
+        }
+      }
+
       return {
         id: r.id,
         project_name: r.project_name,
         master_type: r.master_type,
-        ...ruleObj
+        ...cleanRuleObj
       };
     });
   } catch (err) {
@@ -59,10 +68,18 @@ export async function saveProjectRules(
 
     const payload = records.map((r) => {
       const { id, project_name, master_type, ...ruleData } = r;
+      const cleanRuleData: Record<string, any> = {};
+
+      for (const k of Object.keys(ruleData)) {
+        if (isKeyInMaster(k, masterType)) {
+          cleanRuleData[k] = ruleData[k];
+        }
+      }
+
       return {
         project_name: projectName,
         master_type: masterType,
-        rule_data: ruleData
+        rule_data: cleanRuleData
       };
     });
 
@@ -80,3 +97,4 @@ export async function saveProjectRules(
     return false;
   }
 }
+

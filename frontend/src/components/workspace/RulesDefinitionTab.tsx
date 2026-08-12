@@ -6,7 +6,7 @@ import { fetchMappingsForProject } from '../../services/mappingService';
 import { isProjectLocked, fetchProjectMasterLockStatuses } from '../../services/projectService';
 import { FixedRuleRecord } from '../../types';
 import { MASTER_CONFIGS } from '../../utils/constants';
-import { getFieldDescription, getTechnicalFieldName } from '../../utils/schemaLoader';
+import { getFieldDescription, getTechnicalFieldName, isKeyInMaster } from '../../utils/schemaLoader';
 import { Toast } from '../common/Toast';
 import * as XLSX from 'xlsx';
 import {
@@ -200,7 +200,8 @@ export const RulesDefinitionTab: React.FC = () => {
     fetchMappingsForProject(currentProject, selectedMaster).then((mappings) => {
       const targetFields = mappings
         .filter((m) => m.mapping_type === 'Based on Fixed Rules')
-        .map((m) => getTechnicalFieldName(m.field_name, selectedMaster));
+        .map((m) => getTechnicalFieldName(m.field_name, selectedMaster))
+        .filter((f) => isKeyInMaster(f, selectedMaster));
 
       const uniqueFields = Array.from(new Set(targetFields));
       setRuleFields(uniqueFields);
@@ -419,8 +420,12 @@ export const RulesDefinitionTab: React.FC = () => {
               : getTechnicalFieldName(header, selectedMaster);
               
             const val = String(row[header] || '').trim();
-            if (techKey) ruleRec[techKey] = val;
-            ruleRec[header] = val;
+            if (techKey && isKeyInMaster(techKey, selectedMaster)) {
+              ruleRec[techKey] = val;
+            }
+            if (isKeyInMaster(header, selectedMaster)) {
+              ruleRec[header] = val;
+            }
           });
 
           return ruleRec;

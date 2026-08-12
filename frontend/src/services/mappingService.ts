@@ -1,22 +1,38 @@
 // frontend/src/services/mappingService.ts
 import { supabase } from './supabaseClient';
 import { FieldMapping, MappingType, MasterType } from '../types';
-import { getLegacyViewInfo, getTechnicalFieldName } from '../utils/schemaLoader';
+import { getLegacyViewInfo, getTechnicalFieldName, isFieldInMasterSchema } from '../utils/schemaLoader';
 
 export async function fetchMappingsForProject(
   projectName: string,
   masterType: MasterType = 'Material Master'
 ): Promise<FieldMapping[]> {
   try {
-    const { data, error } = await supabase
-      .from('field_mappings')
-      .select('*')
-      .eq('project_name', projectName);
+    let allData: any[] = [];
+    let page = 0;
+    const pageSize = 1000;
 
-    if (error || !data) return [];
+    while (true) {
+      const { data, error } = await supabase
+        .from('field_mappings')
+        .select('*')
+        .eq('project_name', projectName)
+        .range(page * pageSize, (page + 1) * pageSize - 1);
+
+      if (error || !data) break;
+      allData = allData.concat(data);
+      if (data.length < pageSize) break;
+      page++;
+      if (page >= 10) break;
+    }
+
+    // Filter out rows that do not belong to masterType schema
+    const filteredData = allData.filter((item) =>
+      isFieldInMasterSchema(item.view_name, item.field_name, masterType)
+    );
 
     // Normalize field_name to technical SAP field name for all returned items
-    const normalizedData = data.map((item) => {
+    const normalizedData = filteredData.map((item) => {
       const techKey = getTechnicalFieldName(item.field_name, masterType);
       return {
         ...item,
@@ -30,6 +46,7 @@ export async function fetchMappingsForProject(
     return [];
   }
 }
+
 
 export interface FieldMappingItem {
   fieldName: string;
