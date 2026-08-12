@@ -2,6 +2,7 @@
 import { supabase } from './supabaseClient';
 import { FixedRuleRecord, MasterType } from '../types';
 import { isKeyInMaster } from '../utils/schemaLoader';
+import { isProjectMasterLocked } from './projectService';
 
 export async function fetchProjectRules(projectName: string, masterType: MasterType): Promise<FixedRuleRecord[]> {
   try {
@@ -29,23 +30,25 @@ export async function fetchProjectRules(projectName: string, masterType: MasterT
       if (page >= 20) break;
     }
 
-    return allData.map((r: any) => {
-      const ruleObj = r.rule_data || {};
-      const cleanRuleObj: Record<string, any> = {};
+    return allData
+      .filter((r: any) => r.master_type !== '__LOCK__')
+      .map((r: any) => {
+        const ruleObj = r.rule_data || {};
+        const cleanRuleObj: Record<string, any> = {};
 
-      for (const k of Object.keys(ruleObj)) {
-        if (isKeyInMaster(k, masterType)) {
-          cleanRuleObj[k] = ruleObj[k];
+        for (const k of Object.keys(ruleObj)) {
+          if (isKeyInMaster(k, masterType)) {
+            cleanRuleObj[k] = ruleObj[k];
+          }
         }
-      }
 
-      return {
-        id: r.id,
-        project_name: r.project_name,
-        master_type: r.master_type,
-        ...cleanRuleObj
-      };
-    });
+        return {
+          id: r.id,
+          project_name: r.project_name,
+          master_type: r.master_type,
+          ...cleanRuleObj
+        };
+      });
   } catch (err) {
     console.error('Error fetching rules:', err);
     return [];
@@ -58,6 +61,11 @@ export async function saveProjectRules(
   records: FixedRuleRecord[],
   onProgress?: (ratio: number) => void
 ): Promise<boolean> {
+  if (isProjectMasterLocked(projectName, masterType)) {
+    console.warn(`Project '${projectName}' is locked for '${masterType}'. Rule changes cannot be saved.`);
+    return false;
+  }
+
   try {
     // Delete existing rules for this project & master type to replace with new set
     await supabase

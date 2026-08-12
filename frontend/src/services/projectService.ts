@@ -150,44 +150,28 @@ export function isProjectLocked(projectName: string, masterType?: MasterType): b
 export async function fetchProjectMasterLockStatuses(): Promise<Record<string, Record<string, boolean>>> {
   const result: Record<string, Record<string, boolean>> = {};
   try {
-    // 1. Fetch from migration_projects table in Supabase
-    const { data: projData } = await supabase
-      .from('migration_projects')
-      .select('project_name, master_type, is_locked');
+    // 1. Fetch from project_fixed_rules table with master_type = '__LOCK__' in Supabase
+    const { data: lockRows } = await supabase
+      .from('project_fixed_rules')
+      .select('id, project_name, rule_data')
+      .eq('master_type', '__LOCK__');
 
-    if (projData && projData.length > 0) {
-      projData.forEach((row: any) => {
+    if (lockRows && lockRows.length > 0) {
+      lockRows.forEach((row: any) => {
         const pName = (row.project_name || '').trim();
-        const mType = (row.master_type || '').trim();
-        const isLocked = Boolean(row.is_locked);
-        if (pName && mType) {
+        const ruleData = row.rule_data || {};
+        if (pName) {
           if (!result[pName]) result[pName] = {};
-          result[pName][mType] = isLocked;
-          try {
-            localStorage.setItem(`project_lock_${pName}__${mType}`, isLocked ? 'true' : 'false');
-          } catch (e) {}
-        }
-      });
-    }
-
-    // 2. Also fetch from dedicated project_locks table if present
-    try {
-      const { data: lockData } = await supabase.from('project_locks').select('*');
-      if (lockData && lockData.length > 0) {
-        lockData.forEach((row: any) => {
-          const pName = (row.project_name || '').trim();
-          const mType = (row.master_type || '').trim();
-          const isLocked = Boolean(row.is_locked);
-          if (pName && mType) {
-            if (!result[pName]) result[pName] = {};
+          Object.keys(ruleData).forEach((mType) => {
+            const isLocked = Boolean(ruleData[mType]);
             result[pName][mType] = isLocked;
             try {
               localStorage.setItem(`project_lock_${pName}__${mType}`, isLocked ? 'true' : 'false');
             } catch (e) {}
-          }
-        });
-      }
-    } catch (e) {}
+          });
+        }
+      });
+    }
   } catch (e) {
     console.warn('Error fetching lock statuses from Supabase:', e);
   }
@@ -244,22 +228,31 @@ export async function setProjectMasterLockStatus(
     // 1. Cache in local storage
     localStorage.setItem(`project_lock_${pName}__${mType}`, locked ? 'true' : 'false');
 
-    // 2. Persist to migration_projects in Supabase
+    // 2. Persist to project_fixed_rules table with master_type = '__LOCK__' in Supabase
     try {
-      await supabase
-        .from('migration_projects')
-        .update({ is_locked: locked })
+      const { data: existing } = await supabase
+        .from('project_fixed_rules')
+        .select('id, rule_data')
         .eq('project_name', pName)
-        .eq('master_type', mType);
-    } catch (e) {}
+        .eq('master_type', '__LOCK__');
 
-    // 3. Persist to project_locks table in Supabase (if present)
-    try {
-      await supabase.from('project_locks').upsert(
-        { project_name: pName, master_type: mType, is_locked: locked },
-        { onConflict: 'project_name,master_type' }
-      );
-    } catch (e) {}
+      if (existing && existing.length > 0) {
+        const currentData = existing[0].rule_data || {};
+        const updatedData = { ...currentData, [mType]: locked };
+        await supabase
+          .from('project_fixed_rules')
+          .update({ rule_data: updatedData })
+          .eq('id', existing[0].id);
+      } else {
+        await supabase.from('project_fixed_rules').insert({
+          project_name: pName,
+          master_type: '__LOCK__',
+          rule_data: { [mType]: locked }
+        });
+      }
+    } catch (e) {
+      console.error('Failed to persist lock to Supabase:', e);
+    }
 
     try {
       window.dispatchEvent(new Event('project_lock_updated'));
