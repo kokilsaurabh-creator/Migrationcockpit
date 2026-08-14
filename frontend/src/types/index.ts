@@ -136,3 +136,14 @@ export interface GenerationException {
   expectedRule: string;
   currentValue: string;
 }
+
+export interface DataSanityException {
+  id: string;
+  rowIndex: number;
+  checkType: 'PAN Format' | 'PIN Code Country' | 'GST-PAN Match';
+  fieldName: string;
+  viewName?: string;
+  currentValue: string;
+  message: string;
+  allowed: boolean;
+}

@@ -7,8 +7,9 @@ import { fetchProjectRules } from '../../services/rulesService';
 import { fetchPlantSLocMappings } from '../../services/plantStorageLocationService';
 import { generateXmlPayload, expandRawRecords, validateXmlPayload } from '../../services/xmlGeneratorService';
 import { checkMasterDataDuplicates } from '../../services/duplicateCheckService';
+import { validateDataSanity } from '../../services/dataSanityService';
 import { MASTER_CONFIGS } from '../../utils/constants';
-import { FieldMapping, FixedRuleRecord, DuplicateCheckResult, GenerationException } from '../../types';
+import { FieldMapping, FixedRuleRecord, DuplicateCheckResult, GenerationException, DataSanityException } from '../../types';
 import { DataGrid } from '../common/DataGrid';
 import { Toast } from '../common/Toast';
 import { DuplicateWarningModal } from './DuplicateWarningModal';
@@ -38,6 +39,7 @@ export const XmlGenerationTab: React.FC = () => {
   const [toast, setToast] = useState<{ type: 'success' | 'error'; msg: string } | null>(null);
 
   const [exceptions, setExceptions] = useState<GenerationException[]>([]);
+  const [sanityExceptions, setSanityExceptions] = useState<DataSanityException[]>([]);
   const [showExceptionModal, setShowExceptionModal] = useState<boolean>(false);
 
   useEffect(() => {
@@ -176,7 +178,7 @@ export const XmlGenerationTab: React.FC = () => {
   };
 
   // Execute Transformation & XML Payload Generation
-  const handleExecuteMigration = async (recordsToUse?: Record<string, any>[]) => {
+  const handleExecuteMigration = async (recordsToUse?: Record<string, any>[], overrideAllowedSanityIds?: Set<string>) => {
     const records = recordsToUse || uploadedRecords;
     if (records.length === 0) {
       setToast({ type: 'error', msg: 'Please upload raw data Excel file first.' });
@@ -187,9 +189,23 @@ export const XmlGenerationTab: React.FC = () => {
     setToast(null);
 
     try {
+      // 1. Rule & Mandatory Field Exceptions
       const validationExceptions = validateXmlPayload(selectedMaster, schema, allMappings, savedRules, records);
-      if (validationExceptions.length > 0) {
+
+      // 2. Data Sanity Checks (PAN format, Country PIN code, GST-PAN embedding match)
+      const dataSanityResult = validateDataSanity(selectedMaster, records, schema, allMappings);
+
+      // Apply any user-approved 'Allowed' overrides
+      const updatedSanityResult = dataSanityResult.map((item) => ({
+        ...item,
+        allowed: overrideAllowedSanityIds?.has(item.id) || item.allowed
+      }));
+
+      const unallowedSanityExceptions = updatedSanityResult.filter((s) => !s.allowed);
+
+      if (validationExceptions.length > 0 || unallowedSanityExceptions.length > 0) {
         setExceptions(validationExceptions);
+        setSanityExceptions(updatedSanityResult);
         setShowExceptionModal(true);
         setExecuting(false);
         return;
@@ -219,7 +235,7 @@ export const XmlGenerationTab: React.FC = () => {
     }
   };
 
-  const handleApplyCorrections = (corrections: Record<number, Record<string, string>>, deletedIndices: Set<number>) => {
+  const handleApplyCorrections = (corrections: Record<number, Record<string, string>>, deletedIndices: Set<number>, allowedSanityIds: Set<string>) => {
     setShowExceptionModal(false);
     
     // Apply edits
@@ -239,7 +255,7 @@ export const XmlGenerationTab: React.FC = () => {
     const filteredRecords = updatedRecords.filter((_, idx) => !deletedIndices.has(idx));
     
     setUploadedRecords(filteredRecords);
-    handleExecuteMigration(filteredRecords);
+    handleExecuteMigration(filteredRecords, allowedSanityIds);
   };
 
   // Download XML file
@@ -274,6 +290,7 @@ export const XmlGenerationTab: React.FC = () => {
       <ExceptionAlertModal
         isOpen={showExceptionModal}
         exceptions={exceptions}
+        sanityExceptions={sanityExceptions}
         uploadedRecords={uploadedRecords}
         templateColumns={templateColumns}
         onClose={() => setShowExceptionModal(false)}
