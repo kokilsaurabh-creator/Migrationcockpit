@@ -87,6 +87,10 @@ export async function saveMappingsBatch(
     let lastError: string | undefined = undefined;
 
     for (const item of items) {
+      if (!isFieldInMasterSchema(viewName, item.fieldName, masterType)) {
+        console.warn(`Skipping saving field '${item.fieldName}' as it is not valid for view '${viewName}' in ${masterType}`);
+        continue;
+      }
       const valToSave = item.fixedValue || item.sourceField || '';
       const techKey = (getTechnicalFieldName(item.fieldName, masterType) || item.fieldName).trim();
       const desc = (item.fieldDescription || '').trim();

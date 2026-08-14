@@ -577,6 +577,45 @@ export async function generateXmlPayload(
     const validRows = rowsList.filter(hasPrimaryKeyVal);
     if (validRows.length === 0) continue;
 
+    let activeRows = validRows;
+
+    // --- OUTPUT TAX SLASH EXPANSION (Customer Master) ---
+    if (masterType === 'Customer Master' && sheetName === 'Output Tax') {
+      const expandedOutputTaxRows: Record<string, string>[] = [];
+      for (const r of validRows) {
+        const catVal = normalizeVal(r['Tax Category'] || r['TATYP'] || '');
+        const classVal = normalizeVal(r['Tax Classification'] || r['TAXKD'] || '');
+
+        const catList = catVal.includes('/')
+          ? catVal.split('/').map((x) => x.trim()).filter(Boolean)
+          : catVal ? [catVal] : [];
+        const classList = classVal.includes('/')
+          ? classVal.split('/').map((x) => x.trim()).filter(Boolean)
+          : classVal ? [classVal] : [];
+
+        const numSplits = Math.max(catList.length, classList.length);
+        if (numSplits > 1) {
+          for (let i = 0; i < numSplits; i++) {
+            const newR = { ...r };
+            if (catList.length > 0) {
+              const cItem = i < catList.length ? catList[i] : catList[catList.length - 1];
+              newR['Tax Category'] = cItem;
+              newR['TATYP'] = cItem;
+            }
+            if (classList.length > 0) {
+              const clItem = i < classList.length ? classList[i] : classList[classList.length - 1];
+              newR['Tax Classification'] = clItem;
+              newR['TAXKD'] = clItem;
+            }
+            expandedOutputTaxRows.push(newR);
+          }
+        } else {
+          expandedOutputTaxRows.push(r);
+        }
+      }
+      activeRows = expandedOutputTaxRows;
+    }
+
     const schemaFields = schema[sheetName] || [];
     const exactColumnOrder = schemaFields.map((f) => f.description || f.field_name);
 
@@ -586,7 +625,7 @@ export async function generateXmlPayload(
     const seenTuples = new Set<string>();
     const isHeaderSheet = sheetName === 'Basic Data' || sheetName === 'General Data';
 
-    for (const r of validRows) {
+    for (const r of activeRows) {
       let pkVal = normalizeVal(r[primaryKey]);
       if (!pkVal) {
         for (const alt of [

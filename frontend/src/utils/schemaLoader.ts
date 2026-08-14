@@ -131,13 +131,22 @@ export function isFieldInMasterSchema(viewName: string, fieldName: string, maste
   const cleanView = (viewName || '').trim().toLowerCase().replace(/^[0-9]+\.\s*/, '');
   const cleanField = NORMALIZE_STR(fieldName);
 
-  const viewsInSchema = Object.keys(schema).map(v => v.trim().toLowerCase().replace(/^[0-9]+\.\s*/, ''));
-  const matchesView = cleanView ? viewsInSchema.includes(cleanView) : true;
+  if (cleanView) {
+    const matchingViewKey = Object.keys(schema).find(
+      (v) => v.trim().toLowerCase().replace(/^[0-9]+\.\s*/, '') === cleanView
+    );
 
-  if (matchesView) {
-    return isKeyInMaster(fieldName, masterType);
+    if (matchingViewKey) {
+      const viewFields = schema[matchingViewKey] || [];
+      return viewFields.some(
+        (f) =>
+          (f.field_name && NORMALIZE_STR(f.field_name) === cleanField) ||
+          (f.description && NORMALIZE_STR(f.description) === cleanField)
+      );
+    }
+    return false;
   }
 
-  return false;
+  return isKeyInMaster(fieldName, masterType);
 }
 
