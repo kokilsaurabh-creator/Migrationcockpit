@@ -140,7 +140,7 @@ export interface GenerationException {
 export interface DataSanityException {
   id: string;
   rowIndex: number;
-  checkType: 'PAN Format' | 'PIN Code Country' | 'GST-PAN Match';
+  checkType: 'PAN Format' | 'PIN Code Country' | 'GST-PAN Match' | 'Mobile Number' | 'Email Format';
   fieldName: string;
   viewName?: string;
   currentValue: string;

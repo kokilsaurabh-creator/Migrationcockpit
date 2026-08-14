@@ -211,6 +211,73 @@ export function validateDataSanity(
         }
       }
     }
+
+    // ----------------------------------------------------
+    // CHECK 4: Mobile Number Validation (MOBILE_LONG, MOBILE_LONG_2, MOBILE_LONG_3)
+    // ----------------------------------------------------
+    const mobileFields = [
+      { keys: ['MOBILE_LONG', 'Mobile Number', 'Mobile', 'Mobile 1', 'TEL_NUMBER'], name: 'MOBILE_LONG' },
+      { keys: ['MOBILE_LONG_2', 'Mobile Number 2', 'Mobile 2'], name: 'MOBILE_LONG_2' },
+      { keys: ['MOBILE_LONG_3', 'Mobile Number 3', 'Mobile 3'], name: 'MOBILE_LONG_3' }
+    ];
+
+    mobileFields.forEach(({ keys, name }) => {
+      const { key, value } = resolveFieldValue(record, keys, masterType);
+      if (value) {
+        // Strip leading +91 or 91 country code prefix if 12 digits starting with 91, or spaces/dashes
+        let digitsOnly = value.replace(/[\s\-\(\)\+]/g, '');
+        if (digitsOnly.startsWith('91') && digitsOnly.length === 12) {
+          digitsOnly = digitsOnly.substring(2);
+        } else if (digitsOnly.startsWith('0') && digitsOnly.length === 11) {
+          digitsOnly = digitsOnly.substring(1);
+        }
+
+        const is10Digits = /^\d{10}$/.test(digitsOnly);
+        if (!is10Digits) {
+          const fieldNameUsed = key || name;
+          exceptions.push({
+            id: `mobile_${rowIndex}_${fieldNameUsed}`,
+            rowIndex,
+            checkType: 'Mobile Number',
+            fieldName: fieldNameUsed,
+            viewName: 'General Data',
+            currentValue: value,
+            message: `Invalid Mobile Number "${value}" in ${fieldNameUsed}. Expected a 10-digit number.`,
+            allowed: false
+          });
+        }
+      }
+    });
+
+    // ----------------------------------------------------
+    // CHECK 5: Email Address Validation (SMTP_ADDR, SMTP_ADDR_2, SMTP_ADDR_3)
+    // ----------------------------------------------------
+    const emailFields = [
+      { keys: ['SMTP_ADDR', 'Email Address', 'Email', 'Email ID', 'SMTP_ADDR_1'], name: 'SMTP_ADDR' },
+      { keys: ['SMTP_ADDR_2', 'Email Address 2', 'Email 2', 'Email ID 2'], name: 'SMTP_ADDR_2' },
+      { keys: ['SMTP_ADDR_3', 'Email Address 3', 'Email 3', 'Email ID 3'], name: 'SMTP_ADDR_3' }
+    ];
+
+    const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/i;
+
+    emailFields.forEach(({ keys, name }) => {
+      const { key, value } = resolveFieldValue(record, keys, masterType);
+      if (value) {
+        if (!EMAIL_REGEX.test(value)) {
+          const fieldNameUsed = key || name;
+          exceptions.push({
+            id: `email_${rowIndex}_${fieldNameUsed}`,
+            rowIndex,
+            checkType: 'Email Format',
+            fieldName: fieldNameUsed,
+            viewName: 'General Data',
+            currentValue: value,
+            message: `Invalid Email Address "${value}" in ${fieldNameUsed}. Expected standard format (e.g. abc@xyz.com).`,
+            allowed: false
+          });
+        }
+      }
+    });
   });
 
   return exceptions;
