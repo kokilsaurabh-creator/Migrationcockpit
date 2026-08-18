@@ -755,15 +755,6 @@ export function validateXmlPayload(
 
   const activeMappings = Array.from(mappingMap.values());
   
-  // Filter mappings to ONLY non-key target fields configured as 'Based on Fixed Rules'
-  const nonKeyFixedRuleMappings = activeMappings.filter((m) => {
-    if (m.mapping_type !== 'Based on Fixed Rules') return false;
-    const fTech = getTechnicalFieldName(m.field_name, masterType).toLowerCase().trim();
-    const fDesc = getFieldDescription(m.field_name, masterType).toLowerCase().trim();
-    const fRaw = m.field_name.toLowerCase().trim();
-
-    return !keyFieldsSet.has(fTech) && !keyFieldsSet.has(fDesc) && !keyFieldsSet.has(fRaw);
-  });
 
   // Pre-build O(1) mapping lookup map
   const mappingLookup = new Map<string, FieldMapping>();
@@ -813,23 +804,15 @@ export function validateXmlPayload(
       }
     }
 
-    // Check non-key target fields mapped as 'Based on Fixed Rules'
-    nonKeyFixedRuleMappings.forEach((mapConfig) => {
-      const fieldName = mapConfig.field_name;
-      const techName = getTechnicalFieldName(fieldName, masterType);
-      const descName = getFieldDescription(fieldName, masterType);
-
-      const valFromRule = matchedRule ? getRuleVal(matchedRule, fieldName, masterType) : '';
-
-      if (!valFromRule) {
-        exceptions.push({
-          rowIndex,
-          fieldName: descName || techName || fieldName,
-          expectedRule: 'Based on Fixed Rules',
-          currentValue: 'Missing fixed value'
-        });
-      }
-    });
+    // If no matching rule is found for the key fields, flag it. We no longer check non-key fields.
+    if (!matchedRule && sortedRules.length > 0) {
+      exceptions.push({
+        rowIndex,
+        fieldName: 'Key Fields Configuration',
+        expectedRule: 'Matching Fixed Rule Required',
+        currentValue: "No matching fixed rule found for this record's key fields"
+      });
+    }
   });
 
   const deduped: GenerationException[] = [];
